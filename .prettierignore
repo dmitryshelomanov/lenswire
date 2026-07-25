@@ -1,0 +1,9 @@
+node_modules
+.expo
+dist
+web-build
+ios
+android
+coverage
+*.lock
+expo-env.d.ts

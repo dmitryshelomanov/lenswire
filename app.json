@@ -1,25 +1,44 @@
 {
   "expo": {
-    "name": "lenswire",
+    "name": "Lenswire",
     "slug": "lenswire",
     "version": "1.0.0",
-    "orientation": "portrait",
-    "icon": "./assets/icon.png",
-    "userInterfaceStyle": "light",
+    "orientation": "default",
+    "icon": "./assets/images/icon.png",
+    "scheme": "lenswire",
+    "userInterfaceStyle": "dark",
+    "newArchEnabled": true,
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.lenswire.app",
+      "entitlements": {
+        "com.apple.security.application-groups": ["group.com.lenswire.app"],
+        "com.apple.developer.networking.networkextension": ["packet-tunnel-provider"]
+      },
+      "infoPlist": {
+        "NSAppTransportSecurity": {
+          "NSAllowsLocalNetworking": true,
+          "NSExceptionDomains": {
+            "example.com": {
+              "NSExceptionAllowsInsecureHTTPLoads": true,
+              "NSIncludesSubdomains": true
+            }
+          }
+        }
+      }
     },
     "android": {
-      "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
-        "foregroundImage": "./assets/android-icon-foreground.png",
-        "backgroundImage": "./assets/android-icon-background.png",
-        "monochromeImage": "./assets/android-icon-monochrome.png"
-      },
-      "predictiveBackGestureEnabled": false
+      "package": "com.lenswire.app",
+      "permissions": [
+        "android.permission.INTERNET",
+        "android.permission.FOREGROUND_SERVICE",
+        "android.permission.FOREGROUND_SERVICE_SPECIAL_USE",
+        "android.permission.POST_NOTIFICATIONS"
+      ]
     },
-    "web": {
-      "favicon": "./assets/favicon.png"
+    "plugins": ["expo-router", "expo-font", "expo-dev-client", "@bacons/apple-targets"],
+    "experiments": {
+      "typedRoutes": true
     }
   }
 }

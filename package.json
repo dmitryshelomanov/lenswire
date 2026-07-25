@@ -1,22 +1,57 @@
 {
   "name": "lenswire",
+  "main": "expo-router/entry",
   "version": "1.0.0",
-  "main": "index.ts",
+  "private": true,
+  "scripts": {
+    "start": "expo start",
+    "ios": "expo run:ios",
+    "android": "expo run:android",
+    "prebuild:ios": "expo prebuild -p ios --clean",
+    "prebuild:android": "expo prebuild -p android --clean",
+    "sim:trust-ca": "bash scripts/sim-dev.sh trust-ca",
+    "sim:mac-proxy-on": "bash scripts/sim-dev.sh mac-proxy-on",
+    "sim:mac-proxy-off": "bash scripts/sim-dev.sh mac-proxy-off",
+    "android:emu-proxy": "bash scripts/android-dev.sh emu-proxy-hint",
+    "android:trust-ca": "bash scripts/android-dev.sh trust-ca-hint",
+    "lint:types": "tsc --noEmit",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
+  },
   "dependencies": {
+    "@bacons/apple-targets": "^5.0.0",
+    "@rn-primitives/portal": "^1.5.2",
+    "@rn-primitives/separator": "^1.5.2",
+    "@rn-primitives/slot": "^1.5.2",
+    "babel-preset-expo": "~57.0.0",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
     "expo": "~57.0.8",
+    "expo-clipboard": "~8.0.7",
+    "expo-constants": "~57.0.7",
+    "expo-dev-client": "^57.0.9",
+    "expo-font": "~57.0.1",
+    "expo-linking": "~57.0.4",
+    "expo-router": "~57.0.8",
     "expo-status-bar": "~57.0.1",
+    "lenswire-proxy": "file:./modules/lenswire-proxy",
+    "lucide-react-native": "^1.27.0",
+    "nativewind": "^4.2.6",
     "react": "19.2.3",
-    "react-native": "0.86.0"
+    "react-native": "0.86.0",
+    "react-native-gesture-handler": "^3.1.0",
+    "react-native-reanimated": "4.5.0",
+    "react-native-safe-area-context": "~5.7.0",
+    "react-native-screens": "~4.26.0",
+    "react-native-svg": "^15.15.5",
+    "react-native-worklets": "0.10.0",
+    "tailwind-merge": "^3.6.0"
   },
   "devDependencies": {
     "@types/react": "~19.2.2",
+    "prettier": "^3.9.6",
+    "tailwindcss": "^3.4.17",
+    "tailwindcss-animate": "^1.0.7",
     "typescript": "~6.0.3"
-  },
-  "scripts": {
-    "start": "expo start",
-    "android": "expo start --android",
-    "ios": "expo start --ios",
-    "web": "expo start --web"
-  },
-  "private": true
+  }
 }
