@@ -4,12 +4,19 @@ public class LenswireProxyModule: Module {
   public func definition() -> ModuleDefinition {
     Name("LenswireProxy")
 
-    Function("isSimulator") { () -> Bool in
-      VPNManager.shared.isSimulator
-    }
-
     Function("getStatus") { () -> String in
       VPNManager.shared.getStatus()
+    }
+
+    Function("getDiagnostics") { () -> [String: Any] in
+      [
+        "status": VPNManager.shared.getStatus(),
+        "lastError": NSNull(),
+        "runtime": [
+          "mode": "packet_tunnel",
+          "proxyPort": Int(LenswireShared.proxyPort),
+        ],
+      ]
     }
 
     AsyncFunction("startCapture") { (promise: Promise) in
@@ -32,10 +39,13 @@ public class LenswireProxyModule: Module {
       }
     }
 
-    AsyncFunction("sendProbe") { (promise: Promise) in
-      VPNManager.shared.sendProbe { error in
+    AsyncFunction("sendProbe") { (probeType: String?, useHttps: Bool?, promise: Promise) in
+      VPNManager.shared.sendProbe(probeType: probeType, useHttps: useHttps) { error in
         if let error {
-          promise.reject("PROBE_FAILED", error.localizedDescription)
+          let message = error.localizedDescription.isEmpty
+            ? String(describing: error)
+            : error.localizedDescription
+          promise.reject("PROBE_FAILED", message)
         } else {
           promise.resolve(nil)
         }
@@ -64,11 +74,7 @@ public class LenswireProxyModule: Module {
     }
 
     AsyncFunction("installCertificate") { (promise: Promise) in
-      #if targetEnvironment(simulator)
-      promise.reject("CA_INSTALL_FAILED", "On Simulator run: npm run sim:trust-ca")
-      #else
       promise.reject("CA_INSTALL_FAILED", "On iOS use Install profile")
-      #endif
     }
 
     Function("getProxyPort") { () -> Int in
@@ -81,6 +87,22 @@ public class LenswireProxyModule: Module {
 
     Function("clearCaptures") {
       VPNManager.shared.clearCaptures()
+    }
+
+    Function("setHttpsDecrypt") { (enabled: Bool) in
+      LenswireShared.httpsDecryptEnabled = enabled
+    }
+
+    Function("getHttpsDecrypt") { () -> Bool in
+      LenswireShared.httpsDecryptEnabled
+    }
+
+    Function("setOverrides") { (rulesJson: String) in
+      LenswireShared.overridesJson = rulesJson
+    }
+
+    Function("getOverrides") { () -> String in
+      LenswireShared.overridesJson
     }
   }
 }

@@ -1,20 +1,16 @@
 import Foundation
+import CFNetwork
 import NetworkExtension
 
 final class VPNManager {
   static let shared = VPNManager()
+  private let probeQueue = DispatchQueue(label: "lenswire.probe.queue", qos: .utility)
 
-  #if targetEnvironment(simulator)
-  private let proxyServer = LocalProxyServer()
-  private var simulatorListening = false
-  #endif
-
-  var isSimulator: Bool {
-    #if targetEnvironment(simulator)
-    true
-    #else
-    false
-    #endif
+  private struct ProbeRequest {
+    let method: String
+    let url: URL
+    let headers: [String: String]
+    let body: Data?
   }
 
   private var providerBundleId: String {
@@ -25,24 +21,10 @@ final class VPNManager {
   }
 
   func getStatus() -> String {
-    #if targetEnvironment(simulator)
-    return simulatorListening ? "listening" : "stopped"
-    #else
     return UserDefaults.standard.string(forKey: "lenswire.vpn.status") ?? "stopped"
-    #endif
   }
 
   func start(completion: @escaping (Error?) -> Void) {
-    #if targetEnvironment(simulator)
-    do {
-      try proxyServer.start()
-      simulatorListening = true
-      UserDefaults.standard.set("listening", forKey: "lenswire.vpn.status")
-      completion(nil)
-    } catch {
-      completion(error)
-    }
-    #else
     NETunnelProviderManager.loadAllFromPreferences { managers, error in
       if let error {
         completion(error)
@@ -78,16 +60,9 @@ final class VPNManager {
         }
       }
     }
-    #endif
   }
 
   func stop(completion: @escaping (Error?) -> Void) {
-    #if targetEnvironment(simulator)
-    proxyServer.stop()
-    simulatorListening = false
-    UserDefaults.standard.set("stopped", forKey: "lenswire.vpn.status")
-    completion(nil)
-    #else
     NETunnelProviderManager.loadAllFromPreferences { managers, error in
       if let error {
         completion(error)
@@ -105,7 +80,6 @@ final class VPNManager {
         completion(saveError)
       }
     }
-    #endif
   }
 
   func getCaptures() -> [[String: Any]] {
@@ -116,51 +90,147 @@ final class VPNManager {
     LenswireShared.clearCaptures()
   }
 
-  /// Hits the in-process proxy with a plain HTTP request so Simulator Dev Mode records a real capture.
-  func sendProbe(completion: @escaping (Error?) -> Void) {
-    #if targetEnvironment(simulator)
-    guard simulatorListening else {
+  func sendProbe(probeType: String?, useHttps: Bool?, completion: @escaping (Error?) -> Void) {
+    guard getStatus() == "listening" else {
       completion(NSError(
         domain: "LenswireProxy",
-        code: 1,
+        code: 3,
         userInfo: [NSLocalizedDescriptionKey: "Start capture before sending a test request."]
       ))
       return
     }
 
-    let config = URLSessionConfiguration.ephemeral
-    config.connectionProxyDictionary = [
-      "HTTPEnable": 1,
-      "HTTPProxy": "127.0.0.1",
-      "HTTPPort": Int(LenswireShared.proxyPort),
-      "HTTPSEnable": 1,
-      "HTTPSProxy": "127.0.0.1",
-      "HTTPSPort": Int(LenswireShared.proxyPort),
-    ]
-    config.timeoutIntervalForRequest = 15
+    probeQueue.async {
+      let probe = self.buildProbeRequest(probeType: probeType, useHttps: useHttps)
+      var request = URLRequest(url: probe.url)
+      request.httpMethod = probe.method
+      request.httpBody = probe.body
+      request.timeoutInterval = 20
+      probe.headers.forEach { request.setValue($0.value, forHTTPHeaderField: $0.key) }
 
-    let session = URLSession(configuration: config)
-    guard let url = URL(string: "http://example.com/") else {
-      completion(NSError(
-        domain: "LenswireProxy",
-        code: 2,
-        userInfo: [NSLocalizedDescriptionKey: "Invalid probe URL"]
-      ))
-      return
-    }
+      let config = URLSessionConfiguration.ephemeral
+      config.connectionProxyDictionary = [
+        kCFNetworkProxiesHTTPEnable as String: 1,
+        kCFNetworkProxiesHTTPProxy as String: "127.0.0.1",
+        kCFNetworkProxiesHTTPPort as String: Int(LenswireShared.proxyPort),
+        kCFNetworkProxiesHTTPSEnable as String: 1,
+        kCFNetworkProxiesHTTPSProxy as String: "127.0.0.1",
+        kCFNetworkProxiesHTTPSPort as String: Int(LenswireShared.proxyPort),
+      ]
+      let session = URLSession(configuration: config)
+      let semaphore = DispatchSemaphore(value: 0)
+      var taskError: Error?
 
-    session.dataTask(with: url) { _, _, error in
-      // Capture is written by LocalProxyServer when the proxied request arrives.
-      DispatchQueue.main.async {
-        completion(error)
+      let task = session.dataTask(with: request) { _, response, error in
+        if let error {
+          taskError = error
+        } else if let http = response as? HTTPURLResponse, http.statusCode >= 400 {
+          taskError = NSError(
+            domain: "LenswireProxy",
+            code: http.statusCode,
+            userInfo: [NSLocalizedDescriptionKey: "Probe upstream returned HTTP \(http.statusCode)"]
+          )
+        }
+        semaphore.signal()
       }
-    }.resume()
-    #else
-    completion(NSError(
-      domain: "LenswireProxy",
-      code: 3,
-      userInfo: [NSLocalizedDescriptionKey: "Probe is only available in Simulator Dev Mode."]
-    ))
-    #endif
+      task.resume()
+
+      if semaphore.wait(timeout: .now() + 25) == .timedOut {
+        task.cancel()
+        taskError = NSError(
+          domain: "LenswireProxy",
+          code: 4,
+          userInfo: [NSLocalizedDescriptionKey: "Probe timed out."]
+        )
+      }
+
+      session.invalidateAndCancel()
+      completion(taskError)
+    }
+  }
+
+  private func buildProbeRequest(probeType: String?, useHttps: Bool?) -> ProbeRequest {
+    let selected = (probeType ?? "http_get").lowercased()
+    let scheme: String = {
+      if selected == "https_get" { return "https" }
+      return useHttps == true ? "https" : "http"
+    }()
+    switch selected {
+    case "https_get":
+      return ProbeRequest(
+        method: "GET",
+        url: URL(string: "https://httpbin.org/get?probe=https_get")!,
+        headers: [:],
+        body: nil
+      )
+    case "post_json":
+      let body = """
+      {
+        "probe":"post_json",
+        "client":"lenswire",
+        "platform":"ios",
+        "features":["pretty-json","payload-render"]
+      }
+      """.data(using: .utf8)!
+      return ProbeRequest(
+        method: "POST",
+        url: URL(string: "\(scheme)://httpbin.org/post")!,
+        headers: ["Content-Type": "application/json; charset=utf-8"],
+        body: body
+      )
+    case "post_form_urlencoded":
+      let body = "probe=post_form_urlencoded&client=lenswire&platform=ios".data(using: .utf8)!
+      return ProbeRequest(
+        method: "POST",
+        url: URL(string: "\(scheme)://httpbin.org/post")!,
+        headers: ["Content-Type": "application/x-www-form-urlencoded; charset=utf-8"],
+        body: body
+      )
+    case "post_multipart":
+      let boundary = "----LenswireProbeBoundary\(Int(Date().timeIntervalSince1970))"
+      return ProbeRequest(
+        method: "POST",
+        url: URL(string: "\(scheme)://httpbin.org/post")!,
+        headers: ["Content-Type": "multipart/form-data; boundary=\(boundary)"],
+        body: buildMultipartBody(boundary: boundary)
+      )
+    case "get_image":
+      return ProbeRequest(
+        method: "GET",
+        url: URL(string: "\(scheme)://httpbin.org/image/png")!,
+        headers: [:],
+        body: nil
+      )
+    case "http_get":
+      fallthrough
+    default:
+      return ProbeRequest(
+        method: "GET",
+        url: URL(string: "\(scheme)://httpbin.org/get?probe=http_get")!,
+        headers: [:],
+        body: nil
+      )
+    }
+  }
+
+  private func buildMultipartBody(boundary: String) -> Data {
+    var body = Data()
+    let lines = [
+      "--\(boundary)\r\n",
+      "Content-Disposition: form-data; name=\"probe\"\r\n\r\n",
+      "post_multipart\r\n",
+      "--\(boundary)\r\n",
+      "Content-Disposition: form-data; name=\"platform\"\r\n\r\n",
+      "ios\r\n",
+      "--\(boundary)\r\n",
+      "Content-Disposition: form-data; name=\"file\"; filename=\"probe.txt\"\r\n",
+      "Content-Type: text/plain\r\n\r\n",
+      "Lenswire multipart probe body\n",
+      "--\(boundary)--\r\n",
+    ]
+    for line in lines {
+      body.append(line.data(using: .utf8)!)
+    }
+    return body
   }
 }

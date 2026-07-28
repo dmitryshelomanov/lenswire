@@ -1,6 +1,7 @@
 package expo.modules.lenswireproxy
 
 import android.app.Activity
+import android.content.Context
 import android.os.Build
 import expo.modules.kotlin.Promise
 import expo.modules.kotlin.exception.Exceptions
@@ -44,6 +45,15 @@ class LenswireProxyModule : Module() {
       if (status == "error" || status == "connecting") "stopped" else status
     }
 
+    Function("getDiagnostics") {
+      val status = VpnController.status()
+      mapOf(
+        "status" to status,
+        "lastError" to ProxyRuntime.lastError,
+        "runtime" to ProxyRuntime.diagnostics,
+      )
+    }
+
     AsyncFunction("startCapture") { promise: Promise ->
       val prepare = VpnController.prepareIntent(context)
       if (prepare != null) {
@@ -71,9 +81,9 @@ class LenswireProxyModule : Module() {
       }
     }
 
-    AsyncFunction("sendProbe") { promise: Promise ->
+    AsyncFunction("sendProbe") { probeType: String?, useHttps: Boolean?, promise: Promise ->
       try {
-        VpnController.sendProbe(context)
+        VpnController.sendProbe(context, probeType, useHttps)
         promise.resolve(null)
       } catch (e: Exception) {
         promise.reject("PROBE_FAILED", e.message ?: "Probe failed", e)
@@ -124,6 +134,28 @@ class LenswireProxyModule : Module() {
 
     Function("clearCaptures") {
       CaptureStore.clear(context)
+    }
+
+    Function("setHttpsDecrypt") { enabled: Boolean ->
+      context
+        .getSharedPreferences("lenswire_settings", Context.MODE_PRIVATE)
+        .edit()
+        .putBoolean("httpsDecrypt", enabled)
+        .apply()
+    }
+
+    Function("getHttpsDecrypt") {
+      context
+        .getSharedPreferences("lenswire_settings", Context.MODE_PRIVATE)
+        .getBoolean("httpsDecrypt", true)
+    }
+
+    Function("setOverrides") { rulesJson: String ->
+      OverrideRules.setJson(context, rulesJson)
+    }
+
+    Function("getOverrides") {
+      OverrideRules.getJson(context)
     }
   }
 
