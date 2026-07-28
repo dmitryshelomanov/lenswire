@@ -76,10 +76,7 @@ function OverrideRow({
         />
         <Badge label={rule.method} variant="default" />
         {Object.keys(rule.headers ?? {}).length > 0 ? (
-          <Badge
-            label={`${Object.keys(rule.headers ?? {}).length} hdr`}
-            variant="outline"
-          />
+          <Badge label={`${Object.keys(rule.headers ?? {}).length} hdr`} variant="outline" />
         ) : null}
         {!rule.enabled ? <Badge label="off" variant="outline" /> : null}
         <Pressable onPress={onToggle} className="ml-auto">

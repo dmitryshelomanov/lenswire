@@ -5,7 +5,7 @@ import * as React from 'react';
 import { Alert, Pressable, ScrollView, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import type { HeaderMap, OverrideKind, OverrideRule } from '@/entities/traffic/types';
+import type { HeaderMap, OverrideKind, OverrideRule, TrafficEntry } from '@/entities/traffic/types';
 import {
   contentTypeFromHeaders,
   headersFromEntry,
@@ -79,6 +79,24 @@ function guessContentType(fileName: string): string {
   return 'text/plain';
 }
 
+function seedFromSource(
+  existing: OverrideRule | undefined,
+  entry: TrafficEntry | undefined,
+  kind: OverrideKind,
+): { draft: OverrideRule; headerRows: HeaderRow[] } | null {
+  if (existing) {
+    return {
+      draft: { ...existing, headers: existing.headers ?? {} },
+      headerRows: rowsFromHeaders(existing.headers),
+    };
+  }
+  if (entry) {
+    const next = ruleFromEntry(entry, kind);
+    return { draft: next, headerRows: rowsFromHeaders(next.headers) };
+  }
+  return null;
+}
+
 export default function OverrideEditScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{
@@ -98,19 +116,14 @@ export default function OverrideEditScreen() {
   const [fileName, setFileName] = React.useState<string | null>(null);
   const [pickingFile, setPickingFile] = React.useState(false);
 
-  React.useEffect(() => {
-    if (!ready || draft) return;
-    if (existing) {
-      setDraft({ ...existing, headers: existing.headers ?? {} });
-      setHeaderRows(rowsFromHeaders(existing.headers));
-      return;
+  // Seed editable draft once rules/entry are available (adjust state while rendering).
+  if (ready && !draft) {
+    const seeded = seedFromSource(existing, entry, kindParam);
+    if (seeded) {
+      setDraft(seeded.draft);
+      setHeaderRows(seeded.headerRows);
     }
-    if (entry) {
-      const next = ruleFromEntry(entry, kindParam);
-      setDraft(next);
-      setHeaderRows(rowsFromHeaders(next.headers));
-    }
-  }, [ready, draft, existing, entry, kindParam]);
+  }
 
   const setKind = (kind: OverrideKind) => {
     if (!draft || draft.kind === kind) return;
@@ -226,10 +239,7 @@ export default function OverrideEditScreen() {
         <Text className="flex-1 text-lg font-semibold">
           {existing ? 'Edit override' : 'New override'}
         </Text>
-        <Badge
-          label={kindMeta.short}
-          variant={isResponse ? 'warning' : 'info'}
-        />
+        <Badge label={kindMeta.short} variant={isResponse ? 'warning' : 'info'} />
         {existing ? (
           <Button variant="ghost" size="icon" onPress={onDelete} accessibilityLabel="Delete">
             <Icon as={Trash2} className="text-destructive" size={18} />
@@ -368,9 +378,7 @@ export default function OverrideEditScreen() {
             onPress={() => void pickFile()}
           >
             <Icon as={FileUp} className="text-foreground" size={14} />
-            <Text className="text-sm">
-              {pickingFile ? 'Opening…' : 'Load from file'}
-            </Text>
+            <Text className="text-sm">{pickingFile ? 'Opening…' : 'Load from file'}</Text>
           </Button>
           {fileName ? (
             <Text variant="muted" className="mt-1 font-mono text-xs">
@@ -388,9 +396,7 @@ export default function OverrideEditScreen() {
             autoCapitalize="none"
             autoCorrect={false}
             className="border-input bg-background text-foreground mt-2 min-h-[220px] rounded-md border px-3 py-3 font-mono text-sm"
-            placeholder={
-              isResponse ? '{ "ok": true }' : '{ "userId": 1, "name": "test" }'
-            }
+            placeholder={isResponse ? '{ "ok": true }' : '{ "userId": 1, "name": "test" }'}
             placeholderTextColor="hsl(0 0% 63.9%)"
           />
         </Section>
@@ -427,9 +433,7 @@ function HeaderRowsEditor({
         return (
           <View
             key={row.id}
-            className={`flex-row items-start gap-1 py-2 ${
-              isLast ? '' : 'border-border border-b'
-            }`}
+            className={`flex-row items-start gap-1 py-2 ${isLast ? '' : 'border-border border-b'}`}
           >
             <View className="min-w-0 flex-1 gap-0.5">
               <TextInput

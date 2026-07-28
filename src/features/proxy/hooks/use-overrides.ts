@@ -15,9 +15,7 @@ export function contentTypeFromHeaders(headers: Record<string, string>): string 
 }
 
 /** Seed override headers from a capture, excluding hop-by-hop / content-type (dedicated field). */
-export function headersFromEntry(
-  headers: Record<string, string>,
-): Record<string, string> {
+export function headersFromEntry(headers: Record<string, string>): Record<string, string> {
   const out: Record<string, string> = {};
   for (const [key, value] of Object.entries(headers)) {
     if (MANAGED_HEADER_NAMES.has(key.toLowerCase())) continue;
