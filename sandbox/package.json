@@ -1,0 +1,29 @@
+{
+  "name": "lenswire-sandbox",
+  "main": "expo-router/entry",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "start": "expo start",
+    "android": "expo run:android",
+    "prebuild:android": "expo prebuild -p android --clean",
+    "sync:ca": "bash scripts/sync-lenswire-ca.sh",
+    "build:apk": "cd android && ./gradlew assembleRelease -PreactNativeArchitectures=arm64-v8a,x86_64"
+  },
+  "dependencies": {
+    "expo": "~57.0.8",
+    "expo-constants": "~57.0.7",
+    "expo-linking": "~57.0.4",
+    "expo-router": "~57.0.8",
+    "expo-status-bar": "~57.0.1",
+    "react": "19.2.3",
+    "react-native": "0.86.0",
+    "react-native-safe-area-context": "~5.7.0",
+    "react-native-screens": "~4.26.0"
+  },
+  "devDependencies": {
+    "@types/react": "~19.2.2",
+    "babel-preset-expo": "~57.0.0",
+    "typescript": "~6.0.3"
+  }
+}

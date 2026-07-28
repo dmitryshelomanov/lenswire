@@ -1,0 +1,19 @@
+{
+  "expo": {
+    "name": "Lenswire Sandbox",
+    "slug": "lenswire-sandbox",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "scheme": "lenswire-sandbox",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": true,
+    "android": {
+      "package": "com.lenswire.sandbox",
+      "permissions": ["android.permission.INTERNET"]
+    },
+    "plugins": ["expo-router", "./plugins/with-user-ca"],
+    "experiments": {
+      "typedRoutes": true
+    }
+  }
+}
