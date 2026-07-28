@@ -5,6 +5,7 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.VpnService
 import android.os.Build
 import android.os.ParcelFileDescriptor
@@ -30,9 +31,14 @@ class LenswireVpnService : VpnService() {
     @Volatile
     var proxyServer: LocalProxyServer? = null
       private set
+
+    @Volatile
+    var socksBridgeServer: SocksBridgeServer? = null
+      private set
   }
 
   private var tunInterface: ParcelFileDescriptor? = null
+  private var tun2Socks: Tun2SocksRuntime? = null
   private val started = AtomicBoolean(false)
 
   override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -60,7 +66,16 @@ class LenswireVpnService : VpnService() {
       .setSession("Lenswire")
       .setMtu(1500)
       .addAddress("10.8.0.2", 32)
-    // Intentionally no addRoute(): keep device connectivity; proxy is in-process.
+      .addRoute("0.0.0.0", 0)
+      .addDnsServer("1.1.1.1")
+      .addDnsServer("8.8.8.8")
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+      builder.addRoute("::", 0)
+    }
+    try {
+      builder.addDisallowedApplication(packageName)
+    } catch (_: PackageManager.NameNotFoundException) {
+    }
 
     try {
       tunInterface = builder.establish()
@@ -72,8 +87,50 @@ class LenswireVpnService : VpnService() {
       val proxy = LocalProxyServer(applicationContext)
       proxy.start(CaptureStore.PROXY_PORT)
       proxyServer = proxy
+
+      val socks = SocksBridgeServer(localProxyPort = CaptureStore.PROXY_PORT, listenPort = 1080)
+      socks.start()
+      socksBridgeServer = socks
+
+      val tunFd = tunInterface?.fd ?: throw IllegalStateException("TUN fd unavailable")
+      val engine = Tun2SocksRuntime(
+        tunFd = tunFd,
+        socksPort = 1080,
+        mtu = 1500,
+      )
+      engine.start()
+      tun2Socks = engine
+
+      if (!engine.isRunning()) {
+        failStart("tun2socks failed to start")
+        return
+      }
+
       isRunning = true
       ProxyRuntime.status = "listening"
+      ProxyRuntime.lastError = null
+      ProxyRuntime.diagnostics = mapOf(
+        "mode" to "full_tun",
+        "tunFd" to tunFd,
+        "proxyPort" to CaptureStore.PROXY_PORT,
+        "socksPort" to 1080,
+        "routes" to listOf("0.0.0.0/0", "::/0"),
+        "dns" to listOf("1.1.1.1", "8.8.8.8"),
+        "httpsDecrypt" to applicationContext
+          .getSharedPreferences("lenswire_settings", MODE_PRIVATE)
+          .getBoolean("httpsDecrypt", true),
+        "caReady" to (CertificateManager.loadCa(applicationContext) != null),
+        "quicForcedToTcp" to true,
+        "udpAssociate" to false,
+        "capabilities" to mapOf(
+          "httpCapture" to true,
+          "httpsMitmNonPinned" to true,
+          "pinnedTrafficDecrypt" to false,
+          "nonHttpPortsVisible" to true,
+          "tcpOnlySocks" to true,
+          "quicDecrypt" to false,
+        ),
+      )
     } catch (e: Exception) {
       failStart(e.message ?: "Failed to start local proxy")
     }
@@ -88,6 +145,16 @@ class LenswireVpnService : VpnService() {
     } catch (_: Exception) {
     }
     proxyServer = null
+    try {
+      socksBridgeServer?.stop()
+    } catch (_: Exception) {
+    }
+    socksBridgeServer = null
+    try {
+      tun2Socks?.stop()
+    } catch (_: Exception) {
+    }
+    tun2Socks = null
     try {
       tunInterface?.close()
     } catch (_: Exception) {
@@ -108,11 +175,26 @@ class LenswireVpnService : VpnService() {
     }
     proxyServer = null
     try {
+      socksBridgeServer?.stop()
+    } catch (_: Exception) {
+    }
+    socksBridgeServer = null
+    try {
+      tun2Socks?.stop()
+    } catch (_: Exception) {
+    }
+    tun2Socks = null
+    try {
       tunInterface?.close()
     } catch (_: Exception) {
     }
     tunInterface = null
     started.set(false)
+    ProxyRuntime.diagnostics = mapOf(
+      "mode" to "stopped",
+      "proxyPort" to CaptureStore.PROXY_PORT,
+      "socksPort" to 1080,
+    )
     stopForeground(STOP_FOREGROUND_REMOVE)
   }
 
@@ -158,4 +240,11 @@ object ProxyRuntime {
 
   @Volatile
   var lastError: String? = null
+
+  @Volatile
+  var diagnostics: Map<String, Any?> = mapOf(
+    "mode" to "stopped",
+    "proxyPort" to CaptureStore.PROXY_PORT,
+    "socksPort" to 1080,
+  )
 }
