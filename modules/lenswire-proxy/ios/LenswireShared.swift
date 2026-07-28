@@ -1,3 +1,4 @@
+// Keep in sync with targets/network-packet-tunnel/LenswireShared.swift
 import Foundation
 import zlib
 
@@ -16,6 +17,11 @@ enum LenswireShared {
   static let maxBodyBytes = 256 * 1024
   static let maxImagePreviewBytes = 512 * 1024
   static let maxBinaryPreviewBytes = 16 * 1024
+  static let maxDecodedBodyBytes = 2 * 1024 * 1024
+  static let maxCaptures = 200
+  private static let capturesDirName = "captures"
+  private static let capturesIndexName = "index.json"
+  private static let capturesLock = NSLock()
 
   static var sharedDefaults: UserDefaults {
     UserDefaults(suiteName: appGroupId) ?? .standard
@@ -206,17 +212,89 @@ enum LenswireShared {
   }
 
   static func appendCapture(_ entry: [String: Any]) {
-    var items = sharedDefaults.array(forKey: capturesKey) as? [[String: Any]] ?? []
-    items.insert(entry, at: 0)
-    if items.count > 200 { items = Array(items.prefix(200)) }
-    sharedDefaults.set(items, forKey: capturesKey)
+    capturesLock.lock()
+    defer { capturesLock.unlock() }
+    migrateCapturesAwayFromDefaults()
+    let dir = capturesDirectory()
+    var payload = entry
+    let id = (entry["id"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+    let captureId = (id?.isEmpty == false) ? id! : UUID().uuidString
+    payload["id"] = captureId
+    let fileName = "\(captureId).json"
+    guard let data = try? JSONSerialization.data(withJSONObject: payload, options: []) else { return }
+    try? data.write(to: dir.appendingPathComponent(fileName), options: .atomic)
+
+    var index = readCaptureIndex(dir: dir)
+    index.removeAll { $0 == fileName }
+    index.insert(fileName, at: 0)
+    if index.count > maxCaptures {
+      for drop in index.suffix(from: maxCaptures) {
+        try? FileManager.default.removeItem(at: dir.appendingPathComponent(drop))
+      }
+      index = Array(index.prefix(maxCaptures))
+    }
+    writeCaptureIndex(dir: dir, index: index)
   }
 
   static func readCaptures() -> [[String: Any]] {
-    sharedDefaults.array(forKey: capturesKey) as? [[String: Any]] ?? []
+    capturesLock.lock()
+    defer { capturesLock.unlock() }
+    migrateCapturesAwayFromDefaults()
+    let dir = capturesDirectory()
+    var index = readCaptureIndex(dir: dir)
+    var items: [[String: Any]] = []
+    var valid: [String] = []
+    for name in index {
+      let url = dir.appendingPathComponent(name)
+      guard let data = try? Data(contentsOf: url),
+            let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+        continue
+      }
+      items.append(obj)
+      valid.append(name)
+    }
+    if valid.count != index.count {
+      writeCaptureIndex(dir: dir, index: valid)
+    }
+    return items
   }
 
   static func clearCaptures() {
+    capturesLock.lock()
+    defer { capturesLock.unlock() }
+    migrateCapturesAwayFromDefaults()
+    let dir = capturesDirectory()
+    if let files = try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil) {
+      for file in files {
+        try? FileManager.default.removeItem(at: file)
+      }
+    }
+    writeCaptureIndex(dir: dir, index: [])
+  }
+
+  private static func capturesDirectory() -> URL {
+    let dir = sharedContainerURL.appendingPathComponent(capturesDirName, isDirectory: true)
+    try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    return dir
+  }
+
+  private static func readCaptureIndex(dir: URL) -> [String] {
+    let url = dir.appendingPathComponent(capturesIndexName)
+    guard let data = try? Data(contentsOf: url),
+          let arr = try? JSONSerialization.jsonObject(with: data) as? [String] else {
+      return []
+    }
+    return arr
+  }
+
+  private static func writeCaptureIndex(dir: URL, index: [String]) {
+    let url = dir.appendingPathComponent(capturesIndexName)
+    guard let data = try? JSONSerialization.data(withJSONObject: index, options: []) else { return }
+    try? data.write(to: url, options: .atomic)
+  }
+
+  private static func migrateCapturesAwayFromDefaults() {
+    guard sharedDefaults.object(forKey: capturesKey) != nil else { return }
     sharedDefaults.removeObject(forKey: capturesKey)
   }
 
@@ -385,11 +463,13 @@ enum LenswireShared {
       var buffer = [UInt8](repeating: 0, count: chunk)
       var status: Int32 = Z_OK
       while status == Z_OK {
+        if out.count >= maxDecodedBodyBytes { break }
+        let room = min(chunk, maxDecodedBodyBytes - out.count)
         let written: Int = buffer.withUnsafeMutableBufferPointer { buf in
           stream.next_out = buf.baseAddress
-          stream.avail_out = uInt(chunk)
-          status = inflate(&stream, Z_NO_FLUSH)
-          return chunk - Int(stream.avail_out)
+          stream.avail_out = uInt(room)
+          status = zlib.inflate(&stream, Z_NO_FLUSH)
+          return room - Int(stream.avail_out)
         }
         if written > 0 {
           out.append(buffer, count: written)

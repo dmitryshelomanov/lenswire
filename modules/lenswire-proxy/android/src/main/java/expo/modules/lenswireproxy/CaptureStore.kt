@@ -3,43 +3,95 @@ package expo.modules.lenswireproxy
 import android.content.Context
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.File
 
 object CaptureStore {
   private const val PREFS = "lenswire_captures"
   private const val KEY = "items"
   private const val MAX = 200
+  private const val DIR_NAME = "captures"
+  private const val INDEX_NAME = "index.json"
 
   const val PROXY_PORT = 9090
 
   @Synchronized
   fun append(context: Context, entry: Map<String, Any?>) {
-    val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-    val arr = JSONArray(prefs.getString(KEY, "[]"))
+    migrateAwayFromPrefs(context)
+    val dir = capturesDir(context)
+    val id = entry["id"]?.toString()?.takeIf { it.isNotBlank() }
+      ?: java.util.UUID.randomUUID().toString()
+    val fileName = "$id.json"
     val obj = JSONObject()
     entry.forEach { (k, v) -> obj.put(k, toJsonValue(v)) }
+    if (!obj.has("id")) obj.put("id", id)
+    File(dir, fileName).writeText(obj.toString())
+
+    val index = readIndex(dir)
     val next = JSONArray()
-    next.put(obj)
-    for (i in 0 until minOf(arr.length(), MAX - 1)) {
-      next.put(arr.get(i))
+    next.put(fileName)
+    for (i in 0 until index.length()) {
+      val name = index.optString(i)
+      if (name.isNullOrBlank() || name == fileName) continue
+      if (next.length() >= MAX) {
+        File(dir, name).delete()
+        continue
+      }
+      next.put(name)
     }
-    prefs.edit().putString(KEY, next.toString()).apply()
+    writeIndex(dir, next)
   }
 
   @Synchronized
   fun read(context: Context): List<Map<String, Any?>> {
-    val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-    val arr = JSONArray(prefs.getString(KEY, "[]"))
-    val out = ArrayList<Map<String, Any?>>(arr.length())
-    for (i in 0 until arr.length()) {
-      val obj = arr.getJSONObject(i)
+    migrateAwayFromPrefs(context)
+    val dir = capturesDir(context)
+    val index = readIndex(dir)
+    val out = ArrayList<Map<String, Any?>>(index.length())
+    val valid = JSONArray()
+    for (i in 0 until index.length()) {
+      val name = index.optString(i)
+      if (name.isNullOrBlank()) continue
+      val file = File(dir, name)
+      if (!file.isFile) continue
+      val text = runCatching { file.readText() }.getOrNull() ?: continue
+      val obj = runCatching { JSONObject(text) }.getOrNull() ?: continue
       out.add(fromJsonObject(obj))
+      valid.put(name)
+    }
+    if (valid.length() != index.length()) {
+      writeIndex(dir, valid)
     }
     return out
   }
 
   @Synchronized
   fun clear(context: Context) {
-    context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().remove(KEY).apply()
+    migrateAwayFromPrefs(context)
+    val dir = capturesDir(context)
+    dir.listFiles()?.forEach { it.delete() }
+    writeIndex(dir, JSONArray())
+  }
+
+  private fun capturesDir(context: Context): File {
+    val dir = File(context.filesDir, DIR_NAME)
+    if (!dir.exists()) dir.mkdirs()
+    return dir
+  }
+
+  private fun readIndex(dir: File): JSONArray {
+    val file = File(dir, INDEX_NAME)
+    if (!file.isFile) return JSONArray()
+    return runCatching { JSONArray(file.readText()) }.getOrDefault(JSONArray())
+  }
+
+  private fun writeIndex(dir: File, index: JSONArray) {
+    File(dir, INDEX_NAME).writeText(index.toString())
+  }
+
+  private fun migrateAwayFromPrefs(context: Context) {
+    val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+    if (!prefs.contains(KEY)) return
+    prefs.edit().remove(KEY).apply()
   }
 
   private fun toJsonValue(value: Any?): Any {

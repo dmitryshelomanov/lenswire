@@ -4,7 +4,6 @@ import android.util.Base64
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.ByteArrayInputStream
-import java.io.ByteArrayOutputStream
 import java.util.zip.GZIPInputStream
 import java.util.zip.Inflater
 import java.util.zip.InflaterInputStream
@@ -14,6 +13,7 @@ internal object CaptureFormatting {
   private const val MAX_TEXT_CHARS = 256 * 1024
   private const val MAX_IMAGE_PREVIEW_BYTES = 512 * 1024
   private const val MAX_BINARY_PREVIEW_BYTES = 16 * 1024
+  private const val MAX_DECODED_BYTES = HttpIo.MAX_BODY_BYTES
 
   fun classifyBody(
     body: ByteArray,
@@ -121,7 +121,7 @@ internal object CaptureFormatting {
   private fun decodeGzip(body: ByteArray): DecodedBody? {
     return try {
       GZIPInputStream(ByteArrayInputStream(body)).use { input ->
-        DecodedBody(input.readBytes(), true)
+        DecodedBody(HttpIo.readBounded(input, MAX_DECODED_BYTES), true)
       }
     } catch (_: Exception) {
       null
@@ -141,9 +141,7 @@ internal object CaptureFormatting {
     return try {
       val inflater = Inflater(nowrap)
       InflaterInputStream(ByteArrayInputStream(body), inflater).use { input ->
-        val out = ByteArrayOutputStream()
-        input.copyTo(out)
-        DecodedBody(out.toByteArray(), true)
+        DecodedBody(HttpIo.readBounded(input, MAX_DECODED_BYTES), true)
       }
     } catch (_: Exception) {
       null

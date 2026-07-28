@@ -1,5 +1,16 @@
 import ExpoModulesCore
 
+private final class RejectException: Exception {
+  private let message: String
+
+  init(_ code: String, _ message: String) {
+    self.message = message
+    super.init(name: code, description: message, code: code)
+  }
+
+  override var reason: String { message }
+}
+
 public class LenswireProxyModule: Module {
   public func definition() -> ModuleDefinition {
     Name("LenswireProxy")
@@ -22,7 +33,7 @@ public class LenswireProxyModule: Module {
     AsyncFunction("startCapture") { (promise: Promise) in
       VPNManager.shared.start { error in
         if let error {
-          promise.reject("VPN_START_FAILED", error.localizedDescription)
+          promise.reject(RejectException("VPN_START_FAILED", error.localizedDescription))
         } else {
           promise.resolve(nil)
         }
@@ -32,7 +43,7 @@ public class LenswireProxyModule: Module {
     AsyncFunction("stopCapture") { (promise: Promise) in
       VPNManager.shared.stop { error in
         if let error {
-          promise.reject("VPN_STOP_FAILED", error.localizedDescription)
+          promise.reject(RejectException("VPN_STOP_FAILED", error.localizedDescription))
         } else {
           promise.resolve(nil)
         }
@@ -45,7 +56,7 @@ public class LenswireProxyModule: Module {
           let message = error.localizedDescription.isEmpty
             ? String(describing: error)
             : error.localizedDescription
-          promise.reject("PROBE_FAILED", message)
+          promise.reject(RejectException("PROBE_FAILED", message))
         } else {
           promise.resolve(nil)
         }
@@ -61,7 +72,7 @@ public class LenswireProxyModule: Module {
         let info = try CertificateManager.shared.generate()
         promise.resolve(info)
       } catch {
-        promise.reject("CA_GENERATE_FAILED", error.localizedDescription)
+        promise.reject(RejectException("CA_GENERATE_FAILED", error.localizedDescription))
       }
     }
 
@@ -74,7 +85,7 @@ public class LenswireProxyModule: Module {
     }
 
     AsyncFunction("installCertificate") { (promise: Promise) in
-      promise.reject("CA_INSTALL_FAILED", "On iOS use Install profile")
+      promise.reject(RejectException("CA_INSTALL_FAILED", "On iOS use Install profile"))
     }
 
     Function("getProxyPort") { () -> Int in

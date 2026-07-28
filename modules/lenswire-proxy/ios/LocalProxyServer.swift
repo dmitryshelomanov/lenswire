@@ -1,11 +1,15 @@
 import Foundation
 import Network
 
+// Keep in sync with targets/network-packet-tunnel/LocalProxyServer.swift
 final class LocalProxyServer {
+  private static let maxHttpMessageBytes = 2 * 1024 * 1024
+
   private var listener: NWListener?
   private let queue = DispatchQueue(label: "com.lenswire.localproxy", qos: .userInitiated)
   /// Separate from `queue` so Secure Transport waits do not deadlock NW receive callbacks.
   private let mitmQueue = DispatchQueue(label: "com.lenswire.mitm", qos: .userInitiated, attributes: .concurrent)
+  private let bypassLock = NSLock()
   private var mitmBypassHosts = Set<String>()
 
   func start() throws {
@@ -23,14 +27,96 @@ final class LocalProxyServer {
     listener = nil
   }
 
+  private func isBypassed(_ host: String) -> Bool {
+    bypassLock.lock()
+    defer { bypassLock.unlock() }
+    return mitmBypassHosts.contains(host.lowercased())
+  }
+
+  private func addBypass(_ host: String) {
+    bypassLock.lock()
+    defer { bypassLock.unlock() }
+    mitmBypassHosts.insert(host.lowercased())
+  }
+
   private func handle(connection: NWConnection) {
     connection.start(queue: queue)
-    connection.receive(minimumIncompleteLength: 1, maximumLength: 65536) { [weak self] data, _, _, _ in
-      guard let self, let data, !data.isEmpty else {
+    accumulateHTTPRequest(connection: connection, buffer: Data())
+  }
+
+  private func accumulateHTTPRequest(connection: NWConnection, buffer: Data) {
+    let remaining = Self.maxHttpMessageBytes - buffer.count
+    guard remaining > 0 else {
+      Self.sendPlain(client: connection, status: 502, body: "Lenswire proxy request too large\r\n")
+      return
+    }
+    connection.receive(minimumIncompleteLength: 1, maximumLength: min(65536, remaining)) { [weak self] data, _, isComplete, _ in
+      guard let self else { return }
+      var next = buffer
+      if let data, !data.isEmpty {
+        next.append(data)
+      }
+      if next.isEmpty {
         connection.cancel()
         return
       }
-      self.processRequest(data: data, client: connection)
+
+      guard let headerRange = next.range(of: Data("\r\n\r\n".utf8)) else {
+        if isComplete || next.count >= Self.maxHttpMessageBytes {
+          connection.cancel()
+          return
+        }
+        self.accumulateHTTPRequest(connection: connection, buffer: next)
+        return
+      }
+
+      let headerText = String(data: next.subdata(in: next.startIndex..<headerRange.lowerBound), encoding: .utf8) ?? ""
+      let firstLine = headerText.components(separatedBy: "\r\n").first ?? ""
+      let method = firstLine.split(separator: " ").first.map(String.init)?.uppercased() ?? ""
+
+      if method == "CONNECT" {
+        self.processRequest(
+          data: Data(next[..<headerRange.upperBound]),
+          client: connection
+        )
+        return
+      }
+
+      let headerLower = headerText.lowercased()
+      if headerLower.contains("transfer-encoding:") && headerLower.contains("chunked") {
+        Self.sendPlain(client: connection, status: 502, body: "Lenswire proxy chunked requests not supported\r\n")
+        return
+      }
+
+      var contentLength = 0
+      for line in headerText.components(separatedBy: "\r\n").dropFirst() {
+        let lower = line.lowercased()
+        if lower.hasPrefix("content-length:") {
+          let value = line.split(separator: ":", maxSplits: 1).last?
+            .trimmingCharacters(in: .whitespaces) ?? "0"
+          contentLength = Int(value) ?? 0
+        }
+      }
+
+      let bodyStart = headerRange.upperBound
+      let headerBytes = bodyStart - next.startIndex
+      if contentLength < 0 || headerBytes + contentLength > Self.maxHttpMessageBytes {
+        Self.sendPlain(client: connection, status: 502, body: "Lenswire proxy request too large\r\n")
+        return
+      }
+
+      let have = next.count - bodyStart
+      if have >= contentLength {
+        let total = bodyStart + contentLength
+        self.processRequest(data: Data(next[..<total]), client: connection)
+        return
+      }
+
+      if isComplete {
+        connection.cancel()
+        return
+      }
+      self.accumulateHTTPRequest(connection: connection, buffer: next)
     }
   }
 
@@ -142,7 +228,7 @@ final class LocalProxyServer {
 
         let decryptEnabled = LenswireShared.httpsDecryptEnabled
         let caReady = CertificateAuthority.shared.isReady()
-        let bypassed = self.mitmBypassHosts.contains(effectiveHost.lowercased())
+        let bypassed = self.isBypassed(effectiveHost)
         let clientHelloExpected = !peek.bytes.isEmpty
         let canMitm = decryptEnabled &&
           caReady &&
@@ -216,36 +302,44 @@ final class LocalProxyServer {
             clientHelloBytes: clientHelloSize
           )
         case .handshakeRejected:
-          self.mitmBypassHosts.insert(effectiveHost.lowercased())
-          self.runPassthrough(
+          // Client already saw (or rejected) our MITM cert — ClientHello replay is impossible.
+          self.addBypass(effectiveHost)
+          self.appendTunnelCapture(
+            id: UUID().uuidString,
+            startedAt: Int(Date().timeIntervalSince1970 * 1000),
+            host: effectiveHost,
             connectHost: host,
-            displayHost: effectiveHost,
-            port: port,
-            client: client,
-            prefix: peek.bytes,
+            connectPort: port,
             target: target,
+            status: 502,
             reasonCode: "mitm_handshake_failed",
             hostnameSource: hostnameSource,
             hostnameConfidence: hostnameConfidence,
             sniHostname: sniHostname,
             tlsMeta: tlsMeta,
-            clientHelloBytes: clientHelloSize
+            clientHelloBytes: clientHelloSize,
+            note: nil
           )
+          client.cancel()
         case .hardFailure:
-          self.runPassthrough(
+          // Do not passthrough: TLS already started; raw ClientHello replay would desync.
+          self.appendTunnelCapture(
+            id: UUID().uuidString,
+            startedAt: Int(Date().timeIntervalSince1970 * 1000),
+            host: effectiveHost,
             connectHost: host,
-            displayHost: effectiveHost,
-            port: port,
-            client: client,
-            prefix: peek.bytes,
+            connectPort: port,
             target: target,
+            status: 502,
             reasonCode: "mitm_error",
             hostnameSource: hostnameSource,
             hostnameConfidence: hostnameConfidence,
             sniHostname: sniHostname,
             tlsMeta: tlsMeta,
-            clientHelloBytes: clientHelloSize
+            clientHelloBytes: clientHelloSize,
+            note: nil
           )
+          client.cancel()
         }
       }
     })
@@ -634,7 +728,7 @@ final class LocalProxyServer {
     }
     let bodyStart = headerRange.upperBound
     var have = data.count - bodyStart
-    while have < contentLength, data.count < 2 * 1024 * 1024 {
+    while have < contentLength, data.count < maxHttpMessageBytes {
       let chunk = try reader.read(maxLength: min(65536, contentLength - have))
       if chunk.isEmpty { break }
       data.append(chunk)
@@ -1018,9 +1112,9 @@ final class LocalProxyServer {
     case "mitm_fail_open":
       return "MITM failed; proxy switched to fail-open tunnel mode."
     case "mitm_handshake_failed":
-      return "TLS handshake rejected (likely pinning/trust); switched to tunnel mode."
+      return "TLS handshake rejected (client did not trust Lenswire CA, or TLS mismatch). Host bypassed for this VPN session."
     case "mitm_error":
-      return "MITM proxy error; switched to tunnel mode."
+      return "MITM proxy error after TLS handshake; connection closed (not fail-open tunnel)."
     case "upstream_connect_failed":
       return "Proxy could not connect to upstream target."
     case "passthrough":

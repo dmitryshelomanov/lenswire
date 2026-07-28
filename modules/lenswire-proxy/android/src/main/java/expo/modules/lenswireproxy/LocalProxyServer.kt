@@ -748,7 +748,7 @@ class LocalProxyServer(private val context: Context) {
         } catch (_: Exception) {
           conn.errorStream
         }
-        val body = bodyStream?.readBytes() ?: ByteArray(0)
+        val body = bodyStream?.let { HttpIo.readBounded(it) } ?: ByteArray(0)
         val bodyDoneMs = System.currentTimeMillis()
         HttpIo.writeHttpResponse(
           client.getOutputStream(),
@@ -887,9 +887,9 @@ class LocalProxyServer(private val context: Context) {
       val status = conn.responseCode
       val headersMs = System.currentTimeMillis()
       val resBody = try {
-        conn.inputStream?.readBytes() ?: ByteArray(0)
+        conn.inputStream?.let { HttpIo.readBounded(it) } ?: ByteArray(0)
       } catch (_: Exception) {
-        conn.errorStream?.readBytes() ?: ByteArray(0)
+        conn.errorStream?.let { HttpIo.readBounded(it) } ?: ByteArray(0)
       }
       val bodyDoneMs = System.currentTimeMillis()
       return UpstreamResponse(

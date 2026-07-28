@@ -109,13 +109,16 @@ final class VPNManager {
       probe.headers.forEach { request.setValue($0.value, forHTTPHeaderField: $0.key) }
 
       let config = URLSessionConfiguration.ephemeral
+      // Prefer the tunnel's NEProxySettings. Also set explicit HTTP(S) proxy keys so the
+      // probe still hits LocalProxyServer if system proxy is not yet applied.
+      // HTTPS* CFNetwork constants are macOS-only — use string keys.
       config.connectionProxyDictionary = [
         kCFNetworkProxiesHTTPEnable as String: 1,
         kCFNetworkProxiesHTTPProxy as String: "127.0.0.1",
         kCFNetworkProxiesHTTPPort as String: Int(LenswireShared.proxyPort),
-        kCFNetworkProxiesHTTPSEnable as String: 1,
-        kCFNetworkProxiesHTTPSProxy as String: "127.0.0.1",
-        kCFNetworkProxiesHTTPSPort as String: Int(LenswireShared.proxyPort),
+        "HTTPSEnable": 1,
+        "HTTPSProxy": "127.0.0.1",
+        "HTTPSPort": Int(LenswireShared.proxyPort),
       ]
       let session = URLSession(configuration: config)
       let semaphore = DispatchSemaphore(value: 0)
@@ -144,8 +147,10 @@ final class VPNManager {
         )
       }
 
-      session.invalidateAndCancel()
-      completion(taskError)
+      session.finishTasksAndInvalidate()
+      DispatchQueue.main.async {
+        completion(taskError)
+      }
     }
   }
 

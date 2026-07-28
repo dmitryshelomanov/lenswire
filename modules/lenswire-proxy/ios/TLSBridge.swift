@@ -2,6 +2,64 @@ import Foundation
 import Network
 import Security
 
+// Secure Transport is required to terminate TLS with a custom identity on an existing
+// NWConnection byte stream (MITM). Network.framework cannot do that. Re-bind C symbols
+// so Swift does not treat the still-linked APIs as hard deprecations.
+
+@_silgen_name("SSLCreateContext")
+private func ST_SSLCreateContext(
+  _ alloc: CFAllocator?,
+  _ protocolSide: SSLProtocolSide,
+  _ connectionType: SSLConnectionType
+) -> SSLContext?
+
+@_silgen_name("SSLSetIOFuncs")
+private func ST_SSLSetIOFuncs(
+  _ context: SSLContext,
+  _ readFunc: SSLReadFunc,
+  _ writeFunc: SSLWriteFunc
+) -> OSStatus
+
+@_silgen_name("SSLSetConnection")
+private func ST_SSLSetConnection(
+  _ context: SSLContext,
+  _ connection: SSLConnectionRef
+) -> OSStatus
+
+@_silgen_name("SSLSetCertificate")
+private func ST_SSLSetCertificate(
+  _ context: SSLContext,
+  _ certRefs: CFArray?
+) -> OSStatus
+
+@_silgen_name("SSLSetALPNProtocols")
+private func ST_SSLSetALPNProtocols(
+  _ context: SSLContext,
+  _ protocols: CFArray
+) -> OSStatus
+
+@_silgen_name("SSLHandshake")
+private func ST_SSLHandshake(_ context: SSLContext) -> OSStatus
+
+@_silgen_name("SSLRead")
+private func ST_SSLRead(
+  _ context: SSLContext,
+  _ data: UnsafeMutableRawPointer,
+  _ dataLength: Int,
+  _ processed: UnsafeMutablePointer<Int>
+) -> OSStatus
+
+@_silgen_name("SSLWrite")
+private func ST_SSLWrite(
+  _ context: SSLContext,
+  _ data: UnsafeRawPointer,
+  _ dataLength: Int,
+  _ processed: UnsafeMutablePointer<Int>
+) -> OSStatus
+
+@_silgen_name("SSLClose")
+private func ST_SSLClose(_ context: SSLContext) -> OSStatus
+
 /// TLS server (or client) over an existing `NWConnection` using Secure Transport IO callbacks.
 final class TLSBridge {
   enum Role {
@@ -37,30 +95,30 @@ final class TLSBridge {
     self.inbox = preloadedData
 
     let side: SSLProtocolSide = role == .server ? .serverSide : .clientSide
-    guard let ctx = SSLCreateContext(kCFAllocatorDefault, side, .streamType) else {
+    guard let ctx = ST_SSLCreateContext(kCFAllocatorDefault, side, .streamType) else {
       throw TLSError.contextCreateFailed
     }
     self.context = ctx
 
-    SSLSetIOFuncs(ctx, TLSBridge.sslRead, TLSBridge.sslWrite)
+    _ = ST_SSLSetIOFuncs(ctx, TLSBridge.sslRead, TLSBridge.sslWrite)
     let unmanaged = Unmanaged.passUnretained(self).toOpaque()
-    SSLSetConnection(ctx, unmanaged)
+    _ = ST_SSLSetConnection(ctx, unmanaged)
 
     if role == .server, let identity {
       let certs: [Any] = [identity]
-      SSLSetCertificate(ctx, certs as CFArray)
+      _ = ST_SSLSetCertificate(ctx, certs as CFArray)
     }
 
     // Prefer HTTP/1.1 so we can parse requests without HTTP/2 framing.
     if #available(iOS 11.0, *) {
       let protocols = ["http/1.1"] as CFArray
-      SSLSetALPNProtocols(ctx, protocols)
+      _ = ST_SSLSetALPNProtocols(ctx, protocols)
     }
   }
 
   func handshake() throws {
     while true {
-      let status = SSLHandshake(context)
+      let status = ST_SSLHandshake(context)
       if status == errSecSuccess {
         return
       }
@@ -76,7 +134,7 @@ final class TLSBridge {
     var buffer = [UInt8](repeating: 0, count: maxLength)
     while true {
       var processed = 0
-      let status = SSLRead(context, &buffer, maxLength, &processed)
+      let status = ST_SSLRead(context, &buffer, maxLength, &processed)
       if processed > 0 {
         return Data(buffer.prefix(processed))
       }
@@ -101,7 +159,7 @@ final class TLSBridge {
       var processed = 0
       let status: OSStatus = bytes.withUnsafeBufferPointer { buffer in
         guard let base = buffer.baseAddress else { return errSSLBadConfiguration }
-        return SSLWrite(context, base + total, bytes.count - total, &processed)
+        return ST_SSLWrite(context, base + total, bytes.count - total, &processed)
       }
       total += processed
       if status == errSecSuccess {
@@ -120,7 +178,7 @@ final class TLSBridge {
     lock.lock()
     closed = true
     lock.unlock()
-    SSLClose(context)
+    _ = ST_SSLClose(context)
     connection.cancel()
   }
 

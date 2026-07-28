@@ -10,6 +10,8 @@ import javax.net.ssl.SSLSocket
 
 /** HTTP/1.1 read/write helpers and socket relay for LocalProxyServer. */
 internal object HttpIo {
+  const val MAX_BODY_BYTES = 2 * 1024 * 1024
+
   fun writeHttpResponse(
     out: OutputStream,
     status: Int,
@@ -39,7 +41,7 @@ internal object HttpIo {
     val buffer = ByteArray(4096)
     var headerEnd = -1
     var contentLength = 0
-    while (out.size() < 2 * 1024 * 1024) {
+    while (out.size() < MAX_BODY_BYTES) {
       val read = input.read(buffer)
       if (read <= 0) break
       out.write(buffer, 0, read)
@@ -98,7 +100,27 @@ internal object HttpIo {
       ?.toIntOrNull()
       ?: 0
     if (contentLength <= 0) return ByteArray(0)
-    return readExactly(input, contentLength)
+    val toRead = minOf(contentLength, MAX_BODY_BYTES)
+    val body = readExactly(input, toRead)
+    // Drain excess so the connection stays usable for capture/response paths.
+    if (contentLength > MAX_BODY_BYTES) {
+      skipFully(input, contentLength.toLong() - MAX_BODY_BYTES.toLong())
+    }
+    return body
+  }
+
+  /** Reads up to [maxBytes] from [input], truncating oversized payloads. */
+  fun readBounded(input: InputStream, maxBytes: Int = MAX_BODY_BYTES): ByteArray {
+    val out = ByteArrayOutputStream()
+    val buf = ByteArray(32 * 1024)
+    var total = 0
+    while (total < maxBytes) {
+      val n = input.read(buf, 0, minOf(buf.size, maxBytes - total))
+      if (n <= 0) break
+      out.write(buf, 0, n)
+      total += n
+    }
+    return out.toByteArray()
   }
 
   fun decodeChunkedBody(raw: ByteArray): ByteArray? {
@@ -182,7 +204,7 @@ internal object HttpIo {
 
   private fun readChunkedBody(input: InputStream): ByteArray {
     val out = ByteArrayOutputStream()
-    while (true) {
+    while (out.size() < MAX_BODY_BYTES) {
       val line = readLineCrlf(input) ?: break
       val sizeToken = line.substringBefore(';').trim()
       val chunkSize = sizeToken.toIntOrNull(16) ?: break
@@ -193,8 +215,13 @@ internal object HttpIo {
         }
         break
       }
-      val chunk = readExactly(input, chunkSize)
+      val room = MAX_BODY_BYTES - out.size()
+      val toRead = minOf(chunkSize, room)
+      val chunk = readExactly(input, toRead)
       out.write(chunk)
+      if (chunkSize > toRead) {
+        skipFully(input, (chunkSize - toRead).toLong())
+      }
       val lineBreak = readExactly(input, 2)
       if (
         lineBreak.size != 2 ||
@@ -203,8 +230,38 @@ internal object HttpIo {
       ) {
         break
       }
+      if (chunkSize > toRead) {
+        // Truncated; drain remaining chunks without storing.
+        while (true) {
+          val drainLine = readLineCrlf(input) ?: break
+          val drainSize = drainLine.substringBefore(';').trim().toIntOrNull(16) ?: break
+          if (drainSize == 0) {
+            while (true) {
+              val trailer = readLineCrlf(input) ?: break
+              if (trailer.isEmpty()) break
+            }
+            break
+          }
+          skipFully(input, drainSize.toLong())
+          skipFully(input, 2)
+        }
+        break
+      }
     }
     return out.toByteArray()
+  }
+
+  private fun skipFully(input: InputStream, count: Long) {
+    var left = count
+    while (left > 0) {
+      val skipped = input.skip(left)
+      if (skipped > 0) {
+        left -= skipped
+        continue
+      }
+      if (input.read() < 0) break
+      left -= 1
+    }
   }
 
   private fun readLineCrlf(input: InputStream, maxBytes: Int = 8 * 1024): String? {
