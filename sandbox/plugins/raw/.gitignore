@@ -1,4 +1,1 @@
-# Synced from device via `npm run sync:ca` (not committed).
-*
-!.gitignore
-!.gitkeep
+# Formerly synced Lenswire CA for @raw bundling (removed — User CA only).

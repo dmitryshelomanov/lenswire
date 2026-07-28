@@ -57,16 +57,16 @@ npm run android
 
 ### Sandbox app (User CA + mock probes)
 
-[`sandbox/`](sandbox/) is a separate Expo RN app (`com.lenswire.sandbox`) that trusts User CAs and a **bundled Lenswire CA** (`npm run sync:ca`). Use it to check decrypt without System CA, and later to verify mocks.
+[`sandbox/`](sandbox/) is a separate Expo RN app (`com.lenswire.sandbox`) that trusts **User CAs** via `networkSecurityConfig`. Use it to check decrypt without System CA (after Install CA), and later to verify mocks.
 
 ```bash
-# Lenswire: Generate CA → Install CA (optional) → HTTPS decrypt ON
-cd sandbox && npm install && npm run sync:ca && npm run prebuild:android && npm run build:apk
+# Lenswire: Generate CA → Install CA → HTTPS decrypt ON
+cd sandbox && npm install && npm run prebuild:android && npm run build:apk
 adb install -r android/app/build/outputs/apk/release/app-release.apk
 # Stop/Start VPN if you previously saw trust?/bypassed CONNECT tunnels, then GET post
 ```
 
-See [`sandbox/README.md`](sandbox/README.md). If you only see `CONNECT` + `trust?`/`bypassed`, Stop VPN (clears bypass), re-sync CA after Generate, rebuild.
+See [`sandbox/README.md`](sandbox/README.md). If you only see `CONNECT` + `trust?`/`bypassed`, Stop VPN (clears bypass), Install CA again after Generate.
 
 ### Android emulator: System CA (required for Chrome)
 

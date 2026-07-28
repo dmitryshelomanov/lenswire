@@ -1,10 +1,10 @@
 # Lenswire Sandbox
 
-Minimal Expo (React Native) Android app that trusts **User CAs** and a **bundled Lenswire CA**, and fires predictable HTTPS probes to [jsonplaceholder](https://jsonplaceholder.typicode.com).
+Minimal Expo (React Native) Android app that trusts **User CAs** (`networkSecurityConfig`) and fires predictable HTTPS probes to [jsonplaceholder](https://jsonplaceholder.typicode.com).
 
 Use it to verify:
 
-1. Lenswire decrypts this app’s traffic (no System CA / root AVD required for _this_ app).
+1. Lenswire decrypts this app’s traffic after **Install CA** (no System CA / root AVD, no CA baked into the APK).
 2. Future Lenswire **mocks**: response on screen ≠ Expected live → mock applied.
 
 > Requires a custom native build (`expo run:android` / release APK). Expo Go cannot apply `networkSecurityConfig`.
@@ -13,7 +13,7 @@ Use it to verify:
 
 If Lenswire lists `CONNECT` with badges **`trust?`** or **`bypassed`** (not `GET`/`POST` with body):
 
-- **`trust?`** (`mitm_handshake_failed`) — sandbox rejected the MITM leaf (CA missing, stale after Generate, or not trusted yet).
+- **`trust?`** (`mitm_handshake_failed`) — sandbox rejected the MITM leaf (CA not installed as User CA, or wrong CA after Generate).
 - **`bypassed`** — after the first reject, that host stays in a session bypass list → only tunnels until VPN **Stop**.
 
 Sandbox may still “work” (live API responses) because Lenswire fail-opens to passthrough. That is **not** decrypt.
@@ -23,20 +23,10 @@ Sandbox may still “work” (live API responses) because Lenswire fail-opens to
 1. Lenswire → **Stop** VPN (clears bypass) → Clear list.
 2. Settings → HTTPS decryption **Enabled**.
 3. Certificate → **Generate CA** (if needed) → **Install CA** (User store).
-4. Sync CA into this app and rebuild (recommended — more reliable than User store alone):
+4. Start VPN → sandbox **GET post**.
+5. Expect decrypted `GET …/posts/1` (not only `CONNECT`).
 
-```bash
-cd sandbox
-npm run sync:ca          # pulls CA from com.lenswire.app on the device
-npm run prebuild:android
-npm run build:apk
-adb install -r android/app/build/outputs/apk/release/app-release.apk
-```
-
-5. Start VPN → sandbox **GET post**.
-6. Expect decrypted `GET …/posts/1` (not only `CONNECT`).
-
-If you **Generate CA** again in Lenswire, re-run `sync:ca` + rebuild — a bundled cert must match the CA that signs MITM leaves.
+If you **Generate CA** again in Lenswire, **Install CA** again (User store must match the CA that signs MITM leaves).
 
 ## Trust config
 
@@ -45,10 +35,7 @@ If you **Generate CA** again in Lenswire, re-run `sync:ca` + rebuild — a bundl
 ```xml
 <certificates src="system" />
 <certificates src="user" />
-<certificates src="@raw/lenswire_ca" />
 ```
-
-`@raw/lenswire_ca` comes from `npm run sync:ca` → `plugins/raw/lenswire_ca.pem` (PEM; DER `.cer` kept as a side copy).
 
 ## Run
 
@@ -57,7 +44,6 @@ If you **Generate CA** again in Lenswire, re-run `sync:ca` + rebuild — a bundl
 ```bash
 cd sandbox
 npm install
-npm run sync:ca
 npm run prebuild:android
 npm run android
 ```
@@ -69,15 +55,14 @@ Debug APK alone (without Metro) → white screen. Prefer release APK below for s
 ```bash
 cd sandbox
 npm install
-npm run sync:ca
-npm run prebuild:android   # first time / after native or CA changes
+npm run prebuild:android   # first time / after native changes
 npm run build:apk
 adb install -r android/app/build/outputs/apk/release/app-release.apk
 ```
 
 ## Capture check (with Lenswire)
 
-1. Generate CA → Install CA (optional if using bundled `@raw` after `sync:ca`).
+1. Generate CA → **Install CA** (required).
 2. HTTPS decryption ON → **Start** VPN.
 3. Sandbox → **GET post**.
 4. Lenswire should show decrypted `GET` to `jsonplaceholder.typicode.com/posts/1`.
@@ -98,4 +83,4 @@ adb install -r android/app/build/outputs/apk/release/app-release.apk
 
 ## Native plugin
 
-[`plugins/with-user-ca.js`](plugins/with-user-ca.js) copies the NSC XML and `plugins/raw/lenswire_ca.cer` into the Android project and sets `android:networkSecurityConfig`.
+[`plugins/with-user-ca.js`](plugins/with-user-ca.js) copies the NSC XML into the Android project and sets `android:networkSecurityConfig`.

@@ -4,8 +4,6 @@
     <trust-anchors>
       <certificates src="system" />
       <certificates src="user" />
-      <!-- Bundled Lenswire CA: npm run sync:ca after Generate CA in Lenswire -->
-      <certificates src="@raw/lenswire_ca" />
     </trust-anchors>
   </base-config>
 </network-security-config>

@@ -11,7 +11,7 @@ export function connectionRoute(entry: TrafficEntry): string {
 }
 
 const TRUST_HINT =
-  'Client rejected Lenswire MITM cert (CA not trusted by the app), or TLS/HTTP mismatch. For sandbox: sync CA + rebuild, Stop VPN (clears bypass), then retry. Real pinned apps need Frida/LSPosed unpin.';
+  'Client rejected Lenswire MITM cert (CA not trusted by the app), or TLS/HTTP mismatch. For sandbox: Install CA (User store), Stop VPN (clears bypass), then retry. Real pinned apps need Frida/LSPosed unpin.';
 
 const BYPASS_HINT =
   'Host is on the session MITM bypass list after an earlier trust failure. Stop VPN (or force-stop Lenswire) to clear, then Start again.';
