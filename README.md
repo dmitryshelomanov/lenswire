@@ -1,6 +1,6 @@
 # Lenswire
 
-Native HTTP(S) inspector — ProxyMan-style. VPN capture on device; Simulator / Android MVP modes for development without full MITM yet.
+Native HTTP(S) inspector — ProxyMan-style. On iOS device: Packet Tunnel + local MITM proxy. Simulator Dev Mode for HTTP (and HTTPS after Generate CA + `sim:trust-ca`).
 
 ## Requirements
 
@@ -23,6 +23,16 @@ npm run prebuild:android   # first time / after native Android changes
 npm run android
 ```
 
+## iOS: Install CA → view HTTPS
+
+1. **Certificate** → Generate CA
+2. Install profile (device) **or** `npm run sim:trust-ca` (Simulator)
+3. Settings → General → About → Certificate Trust Settings → enable Lenswire CA
+4. **Start** → allow VPN (device)
+5. Open Safari / apps without pinning — decrypted requests appear with headers and bodies
+
+Toggle **HTTPS decryption** in Settings. Apps with certificate pinning will fail while decryption is on (same as Proxyman).
+
 ## iOS Simulator Dev Mode
 
 Packet Tunnel does **not** work on Simulator (`IPC failed`). Dev Mode starts `LocalProxyServer` in-process.
@@ -31,64 +41,117 @@ Packet Tunnel does **not** work on Simulator (`IPC failed`). Dev Mode starts `Lo
 npm run ios
 # Certificate → Generate CA
 npm run sim:trust-ca
-# Start → Send test request
+# Start → Send test request (HTTP) or Mac proxy + Safari HTTPS
 ```
 
 Optional Mac HTTP proxy for Simulator Safari: `sim:mac-proxy-on` / `sim:mac-proxy-off`.
 
-## Android MVP
+## Android full-device mode
 
 ```bash
 npm run android
-# Certificate → Generate CA → Install CA (system dialog)
-# Start → allow VPN → Send test request
+# Certificate → Generate CA
+# Emulator (required for Chrome decrypt): npm run android:trust-ca
+# Start → allow VPN → open https://example.com
 ```
 
-Smoke test: **Send test request** (in-app HTTP via `127.0.0.1:9090`) is the reliable path. Emulator browser traffic is optional:
+### Sandbox app (User CA + mock probes)
+
+[`sandbox/`](sandbox/) is a separate Expo RN app (`com.lenswire.sandbox`) that trusts User CAs and a **bundled Lenswire CA** (`npm run sync:ca`). Use it to check decrypt without System CA, and later to verify mocks.
 
 ```bash
-npm run android:emu-proxy   # prints -http-proxy instructions
-# Cold-boot / Extended controls: -http-proxy 127.0.0.1:9090
-# (proxy runs inside the app process — do not use 10.0.2.2)
+# Lenswire: Generate CA → Install CA (optional) → HTTPS decrypt ON
+cd sandbox && npm install && npm run sync:ca && npm run prebuild:android && npm run build:apk
+adb install -r android/app/build/outputs/apk/release/app-release.apk
+# Stop/Start VPN if you previously saw trust?/bypassed CONNECT tunnels, then GET post
 ```
+
+See [`sandbox/README.md`](sandbox/README.md). If you only see `CONNECT` + `trust?`/`bypassed`, Stop VPN (clears bypass), re-sync CA after Generate, rebuild.
+
+### Android emulator: System CA (required for Chrome)
+
+On Android 7+, Chrome and most apps **ignore User CAs**. `Install CA` alone puts the cert under **Trusted credentials → User**, which causes browser warnings like “certificate is not trusted by your device's operating system” and pages fail to load while HTTPS decryption is ON.
+
+Use a rooted AVD (**system image without Google Play**):
+
+1. Certificate → **Generate CA**
+2. From the project root:
+
+```bash
+npm run android:trust-ca
+```
+
+3. After reboot: Settings → Security → Trusted credentials → **System** → confirm **Lenswire CA**
+4. Lenswire → HTTPS decryption **Enabled** → Start → open `https://example.com` or `https://m.vk.ru`
+
+Expect decrypted `GET`/`POST` rows (not only `CONNECT`). Google/pinned apps may stay tunnel-only.
+
+**Temporary workaround** without System CA: Settings → HTTPS decryption **OFF** → Stop/Start (sites load again; no decrypt).
+
+If `Install CA` does not open anything, install manually as User CA (not enough for Chrome):
+
+- `Settings` → `Security` → `Encryption & credentials` → `Install a certificate` → `CA certificate`.
+
+To export the generated Android CA file manually:
+
+```bash
+# Verify cert files inside app sandbox
+adb shell run-as com.lenswire.app ls files/certs
+
+# Export DER cert to current host directory
+adb exec-out run-as com.lenswire.app cat files/certs/lenswire-ca.cer > lenswire-ca.cer
+
+# Optional: copy to device Downloads
+adb push lenswire-ca.cer /sdcard/Download/lenswire-ca.cer
+```
+
+The generated files in app sandbox are:
+
+- `files/certs/lenswire-ca.cer` (DER, recommended for install)
+- `files/certs/lenswire-ca.pem` (PEM)
 
 Notes:
 
-- `VpnService` starts a foreground VPN session for the system permission UX; MVP does **not** rewrite TUN traffic yet (`tun2socks` follow-up). Capture goes through in-process `LocalProxyServer` on `:9090`.
-- Plain HTTP is forwarded and recorded; HTTPS `CONNECT` is capture-only (no MITM decrypt yet).
-- User CA store on Android 7+ is ignored by many apps (same as Proxyman without a system CA).
-- No Apple Developer account needed — Android `VpnService` is enough for this MVP.
+- Android routes device traffic through TUN (`VpnService`) → `tun2socks` → SOCKS bridge → local MITM proxy.
+- HTTP capture works without emulator/browser manual proxy setup.
+- HTTPS Path B (TCP/443): SNI-aware MITM (SOCKS peeks ClientHello, proxy uses hostname for leaf cert).
+- Fail-open: recoverable MITM failures fall back to passthrough; handshake-rejected hosts are bypassed for the session.
+- SOCKS bridge is **TCP-only** — UDP/443 (QUIC) is not decrypted; Chrome typically falls back to TCP HTTPS.
+- Tunnel-only rows show a reason (`no sni`, `trust?`, `tls off`, …) in the traffic list and request Overview.
+- Pinned apps remain tunnel-only even with System CA. Lenswire cannot bypass pinning — on a rooted device unpin separately (Frida / objection / LSPosed), then decrypt again.
+- Trust vs pinning: System CA fixes Chrome/browser trust; Frida-style unpinning is a separate step for apps that pin certificates.
+- No Apple Developer account needed — Android `VpnService` is sufficient for this workflow.
 
 ## Device usage (real iOS VPN)
 
-1. Paid Apple Developer team + physical iPhone  
-2. **Certificate** → Generate CA → Install profile → trust in Settings  
-3. **Start** → allow VPN  
-4. Open Safari or any app — requests appear in the list  
+1. Paid Apple Developer team + physical iPhone
+2. **Certificate** → Generate CA → Install profile → trust in Settings
+3. **Start** → allow VPN
+4. Open Safari or any app — decrypted HTTPS appears in the list
 
 ## Architecture
 
 ```
-iOS device:  apps → Packet Tunnel → LocalProxyServer → UI
+iOS device:  apps → Packet Tunnel → LocalProxyServer (MITM) → UI
 iOS Sim:     Start → in-process LocalProxyServer → UI
-Android:     VpnService + LocalProxyServer :9090 → UI (+ probe / emu http-proxy)
+Android:     VpnService(TUN) → tun2socks → SOCKS bridge → LocalProxyServer(MITM) → UI
 ```
 
-| Path | Role |
-|------|------|
-| `app/` | Expo Router UI |
-| `modules/lenswire-proxy/` | Native bridge (iOS + Android) |
-| `targets/network-packet-tunnel/` | iOS VPN extension |
-| `scripts/sim-dev.sh` | iOS Simulator CA / Mac proxy |
-| `scripts/android-dev.sh` | Android emulator proxy / CA hints |
+| Path                             | Role                           |
+| -------------------------------- | ------------------------------ |
+| `app/`                           | Expo Router UI                 |
+| `sandbox/`                       | RN probe app (User CA + mocks) |
+| `modules/lenswire-proxy/`        | Native bridge (iOS + Android)  |
+| `targets/network-packet-tunnel/` | iOS VPN extension              |
+| `scripts/sim-dev.sh`             | iOS Simulator CA / Mac proxy   |
+| `scripts/android-trust-ca.sh`    | Android emulator System CA     |
 
 ## Scripts
 
-| Script | Purpose |
-|--------|---------|
-| `npm run ios` / `android` | Build & run |
-| `npm run prebuild:ios` / `prebuild:android` | Regenerate native projects |
-| `npm run sim:trust-ca` | Trust Dev CA in booted iOS Simulator |
-| `npm run sim:mac-proxy-on/off` | Mac HTTP(S) proxy helpers |
-| `npm run android:emu-proxy` | Emulator http-proxy instructions |
-| `npm run android:trust-ca` | Android CA install hints |
+| Script                                      | Purpose                                            |
+| ------------------------------------------- | -------------------------------------------------- |
+| `npm run ios` / `android`                   | Build & run                                        |
+| `npm run prebuild:ios` / `prebuild:android` | Regenerate native projects                         |
+| `npm run sim:trust-ca`                      | Trust app-generated CA in booted iOS Simulator     |
+| `npm run android:trust-ca`                  | Install Lenswire CA into System store (rooted AVD) |
+| `npm run sim:mac-proxy-on/off`              | Mac HTTP(S) proxy helpers                          |
