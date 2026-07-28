@@ -35,7 +35,13 @@ export default function DomainScreen() {
   const compacted = React.useMemo(() => collapseNoisyConnect(byHost), [byHost]);
 
   const hasActiveFilters =
-    filters.query.trim().length > 0 || filters.method !== 'ALL' || filters.statusClass !== 'ALL';
+    filters.query.trim().length > 0 ||
+    filters.method !== 'ALL' ||
+    (filters.resourceType != null && filters.resourceType !== 'ALL') ||
+    filters.statusClass !== 'ALL' ||
+    filters.scheme !== 'ALL' ||
+    filters.captureMode !== 'ALL' ||
+    filters.overriddenOnly;
 
   const emptyKind = resolveTrafficEmptyKind({
     visibleCount: compacted.length,

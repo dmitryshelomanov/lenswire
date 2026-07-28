@@ -128,9 +128,15 @@ export type CertificateInfo = {
   generatedAt: number | null;
 };
 
+export type ResourceKind =
+  'xhr' | 'doc' | 'css' | 'js' | 'font' | 'img' | 'media' | 'grpc' | 'other';
+
+export type ResourceType = ResourceKind | 'ALL';
+
 export type TrafficFilters = {
   query: string;
   method: HttpMethod | 'ALL';
+  resourceType: ResourceType;
   statusClass: StatusClass | 'ALL';
   scheme: 'ALL' | 'http' | 'https';
   captureMode: 'ALL' | 'http' | 'mitm' | 'tunnel';

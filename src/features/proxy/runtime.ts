@@ -35,6 +35,7 @@ const DEFAULT_SETTINGS: ProxySettings = {
 const DEFAULT_FILTERS: TrafficFilters = {
   query: '',
   method: 'ALL',
+  resourceType: 'ALL',
   statusClass: 'ALL',
   scheme: 'ALL',
   captureMode: 'ALL',

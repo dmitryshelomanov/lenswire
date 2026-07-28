@@ -1,3 +1,4 @@
+import { resourceTypeOf } from './resource-type';
 import { statusClassOf, type TrafficEntry, type TrafficFilters } from './types';
 
 export function filterEntries(entries: TrafficEntry[], filters: TrafficFilters): TrafficEntry[] {
@@ -5,6 +6,13 @@ export function filterEntries(entries: TrafficEntry[], filters: TrafficFilters):
 
   return entries.filter((entry) => {
     if (filters.method !== 'ALL' && entry.method !== filters.method) return false;
+    if (
+      filters.resourceType &&
+      filters.resourceType !== 'ALL' &&
+      resourceTypeOf(entry) !== filters.resourceType
+    ) {
+      return false;
+    }
     if (filters.statusClass !== 'ALL' && statusClassOf(entry.status) !== filters.statusClass) {
       return false;
     }
