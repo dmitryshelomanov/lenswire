@@ -4,19 +4,28 @@ import * as React from 'react';
 import { Pressable, ScrollView, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { useProxyStore } from '@/features/proxy/store';
+import { useProxySettings, useProxyStatus } from '@/features/proxy/store';
+import { type ThemePreference, useThemeStore } from '@/features/theme/store';
 import { Button } from '@/shared/ui/button';
 import { Icon } from '@/shared/ui/icon';
 import { Input } from '@/shared/ui/input';
 import { Text } from '@/shared/ui/text';
 
+const THEME_OPTIONS: { value: ThemePreference; label: string }[] = [
+  { value: 'system', label: 'System' },
+  { value: 'dark', label: 'Dark' },
+  { value: 'light', label: 'Light' },
+];
+
 export default function SettingsScreen() {
   const router = useRouter();
-  const { settings, status, updateSettings } = useProxyStore();
+  const { status } = useProxyStatus();
+  const { settings, updateSettings } = useProxySettings();
+  const { themePreference, setThemePreference } = useThemeStore();
   const listening = status === 'listening';
 
   return (
-    <SafeAreaView className="dark flex-1 bg-background">
+    <SafeAreaView className="flex-1 bg-background">
       <View className="border-border flex-row items-center gap-2 border-b px-4 py-3">
         <Button variant="ghost" size="icon" onPress={() => router.back()}>
           <Icon as={ArrowLeft} className="text-foreground" size={18} />
@@ -77,7 +86,35 @@ export default function SettingsScreen() {
           </Pressable>
           <Text variant="muted" className="mt-2">
             When enabled, the proxy uses the Lenswire CA to decrypt HTTPS. Requires CA install on
-            the device.
+            the device. Certificate-pinned apps stay tunnel-only.
+          </Text>
+        </Field>
+
+        <Field label="Theme">
+          <View className="bg-muted/50 border-border flex-row gap-2 rounded-md border p-1">
+            {THEME_OPTIONS.map((option) => {
+              const selected = themePreference === option.value;
+              return (
+                <Pressable
+                  key={option.value}
+                  onPress={() => setThemePreference(option.value)}
+                  className={`flex-1 rounded-md px-3 py-2 ${
+                    selected ? 'bg-background border-border border' : ''
+                  }`}
+                >
+                  <Text
+                    className={`text-center text-sm ${
+                      selected ? 'text-foreground font-medium' : 'text-muted-foreground'
+                    }`}
+                  >
+                    {option.label}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+          <Text variant="muted" className="mt-2">
+            System follows the device appearance. Dark and Light override it for this app.
           </Text>
         </Field>
       </ScrollView>
