@@ -31,6 +31,7 @@ function RootApp() {
           <StatusBar style={isDark ? 'light' : 'dark'} />
           <Stack screenOptions={{ headerShown: false }}>
             <Stack.Screen name="index" />
+            <Stack.Screen name="domain/[host]" />
             <Stack.Screen name="request/[id]" />
             <Stack.Screen name="certificate" />
             <Stack.Screen name="settings" />

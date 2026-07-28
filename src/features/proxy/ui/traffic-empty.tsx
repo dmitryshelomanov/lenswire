@@ -1,21 +1,22 @@
 import { Activity, Radio, SearchX } from 'lucide-react-native';
 import { Platform, View } from 'react-native';
 
-import { useProxyStore } from '@/features/proxy/store';
 import { Button } from '@/shared/ui/button';
 import { Icon } from '@/shared/ui/icon';
 import { Separator } from '@/shared/ui/separator';
 import { Text } from '@/shared/ui/text';
+
+import { useProxyStatus } from '../store';
 
 type Props = {
   kind: 'stopped' | 'empty' | 'filtered';
 };
 
 export function TrafficEmptyState({ kind }: Props) {
-  const { start, recording, simulator, probe, probing, status } = useProxyStore();
+  const { start, recording, probe, probing, status } = useProxyStatus();
   const listening = status === 'listening';
   const isAndroid = Platform.OS === 'android';
-  const showProbe = listening && (simulator || isAndroid);
+  const showProbe = listening;
 
   if (kind === 'stopped') {
     return (
@@ -28,10 +29,8 @@ export function TrafficEmptyState({ kind }: Props) {
             <Text className="text-center text-xl font-semibold">Capture is stopped</Text>
             <Text variant="muted" className="mt-2 text-center">
               {isAndroid
-                ? 'Generate/install CA, then Start and allow VPN. Use Send test request to verify.'
-                : simulator
-                  ? 'Simulator Dev Mode: Start the in-process proxy, then send a test request.'
-                  : 'Install the CA certificate first, then tap Start. iOS will ask to allow VPN.'}
+                ? 'Generate CA, install as System CA (npm run android:trust-ca), then Start and allow VPN.'
+                : 'Install the CA certificate first, then tap Start. iOS will ask to allow VPN.'}
             </Text>
           </View>
           <Separator className="my-8 w-full" />
@@ -41,15 +40,19 @@ export function TrafficEmptyState({ kind }: Props) {
             </Text>
             {isAndroid ? (
               <>
-                <Text variant="muted">1. Certificate → Generate CA → Install CA</Text>
-                <Text variant="muted">2. Start → allow VPN</Text>
-                <Text variant="muted">3. Send test request (or emulator http-proxy)</Text>
-              </>
-            ) : simulator ? (
-              <>
                 <Text variant="muted">1. Certificate → Generate CA</Text>
-                <Text variant="muted">2. On Mac: npm run sim:trust-ca</Text>
-                <Text variant="muted">3. Start → Send test request</Text>
+                <Text variant="muted">
+                  2. Mac: npm run android:trust-ca (System CA, rooted AVD)
+                </Text>
+                <Text variant="muted">3. Start → allow VPN → open https://example.com</Text>
+                <Text variant="muted">
+                  User CA alone breaks Chrome while decryption is on — use System CA or disable
+                  decrypt.
+                </Text>
+                <Text variant="muted">
+                  Pinned apps: System CA is not enough — unpin with root + Frida / objection /
+                  LSPosed separately.
+                </Text>
               </>
             ) : (
               <>
@@ -89,10 +92,8 @@ export function TrafficEmptyState({ kind }: Props) {
       <Text className="text-center text-xl font-semibold">No traffic yet</Text>
       <Text variant="muted" className="mt-2 max-w-md text-center">
         {isAndroid
-          ? `Recording is ${recording ? 'on' : 'paused'}. Tap Send test request, or set emulator -http-proxy 127.0.0.1:9090 and open http://example.com.`
-          : simulator
-            ? `Recording is ${recording ? 'on' : 'paused'}. Tap Send test request, or point Mac HTTP proxy at 127.0.0.1:9090 and open http://example.com in Safari.`
-            : `Waiting for requests. Recording is ${recording ? 'on' : 'paused'}. Open Safari or any app.`}
+          ? `Recording is ${recording ? 'on' : 'paused'}. Open https://example.com after System CA (npm run android:trust-ca). Expect GET/decrypted — not only CONNECT.`
+          : `Waiting for requests. Recording is ${recording ? 'on' : 'paused'}. Open Safari or any app.`}
       </Text>
       {showProbe ? (
         <Button className="mt-6" disabled={probing} onPress={() => void probe()}>
