@@ -3,5 +3,32 @@
   "version": "0.1.0",
   "main": "src/index.ts",
   "types": "src/index.ts",
-  "private": true
+  "private": true,
+  "description": "Native Expo module: MITM HTTP(S) proxy bridge for Lenswire (iOS Packet Tunnel + Android VpnService)",
+  "author": {
+    "name": "Dmitry Shelomanov",
+    "email": "dmitryshelomanov@mail.ru",
+    "url": "https://github.com/dmitryshelomanov"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/dmitryshelomanov/lenswire#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/dmitryshelomanov/lenswire.git",
+    "directory": "modules/lenswire-proxy"
+  },
+  "bugs": {
+    "url": "https://github.com/dmitryshelomanov/lenswire/issues"
+  },
+  "keywords": [
+    "expo-module",
+    "mitm-proxy",
+    "http-inspector",
+    "vpn",
+    "packet-tunnel",
+    "network-extension",
+    "react-native",
+    "ios",
+    "android"
+  ]
 }

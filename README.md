@@ -1,5 +1,7 @@
 # Lenswire
 
+[github.com/dmitryshelomanov/lenswire](https://github.com/dmitryshelomanov/lenswire) · Dmitry Shelomanov
+
 Native HTTP(S) inspector — ProxyMan-style. On iOS device: Packet Tunnel + local MITM proxy. Simulator Dev Mode for HTTP (and HTTPS after Generate CA + `sim:trust-ca`).
 
 ## Requirements

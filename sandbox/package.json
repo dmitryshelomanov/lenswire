@@ -3,6 +3,33 @@
   "main": "expo-router/entry",
   "version": "1.0.0",
   "private": true,
+  "description": "Lenswire probe app for User CA trust and mock HTTPS traffic on iOS and Android",
+  "author": {
+    "name": "Dmitry Shelomanov",
+    "email": "dmitryshelomanov@mail.ru",
+    "url": "https://github.com/dmitryshelomanov"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/dmitryshelomanov/lenswire#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/dmitryshelomanov/lenswire.git",
+    "directory": "sandbox"
+  },
+  "bugs": {
+    "url": "https://github.com/dmitryshelomanov/lenswire/issues"
+  },
+  "keywords": [
+    "sandbox",
+    "lenswire",
+    "network-security-config",
+    "user-ca",
+    "https",
+    "expo",
+    "react-native",
+    "android",
+    "ios"
+  ],
   "scripts": {
     "start": "expo start",
     "android": "expo run:android",

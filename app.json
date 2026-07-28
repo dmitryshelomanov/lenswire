@@ -3,6 +3,7 @@
     "name": "Lenswire",
     "slug": "lenswire",
     "version": "1.0.0",
+    "description": "Native HTTP(S) inspector with MITM proxy for iOS and Android",
     "orientation": "default",
     "icon": "./assets/images/icon.png",
     "scheme": "lenswire",
