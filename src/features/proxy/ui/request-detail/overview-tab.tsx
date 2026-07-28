@@ -1,5 +1,6 @@
 import { View } from 'react-native';
 
+import { grpcBadgeLabel, grpcVariant, parseGrpcPath } from '@/entities/traffic/grpc';
 import {
   captureModeLabel,
   entryUrl,
@@ -22,12 +23,19 @@ import { OverviewOverrideActions } from './override-actions';
 export function OverviewTab({ entry }: { entry: TrafficEntry }) {
   const decryptHint = decryptHelpHint(entry);
   const decryptTitle = decryptHelpTitle(entry);
+  const variant = grpcVariant(entry);
+  const grpcPath = variant ? parseGrpcPath(entry.path) : null;
 
   return (
     <View className="gap-4">
       <OverviewOverrideActions entry={entry} />
       <MetaRow label="URL" value={entryUrl(entry)} mono />
       <MetaRow label="Request path" value={requestPath(entry)} mono />
+      {grpcPath ? <MetaRow label="gRPC" value={grpcPath.shortLabel} mono /> : null}
+      {variant ? <MetaRow label="RPC transport" value={grpcBadgeLabel(variant)} /> : null}
+      {grpcPath?.packageName ? (
+        <MetaRow label="gRPC package" value={grpcPath.packageName} mono />
+      ) : null}
       <MetaRow label="Connection route" value={connectionRoute(entry)} mono />
       {entry.rawTarget ? <MetaRow label="Raw target" value={entry.rawTarget} mono /> : null}
       {entry.connectTarget ? (

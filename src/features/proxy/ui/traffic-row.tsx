@@ -2,6 +2,7 @@ import { router } from 'expo-router';
 import { Pressable, View } from 'react-native';
 
 import { methodBadgeVariant, reasonLabel, statusBadgeVariant } from '@/entities/traffic/badges';
+import { grpcBadgeLabel, grpcVariant, parseGrpcPath } from '@/entities/traffic/grpc';
 import {
   captureModeLabel,
   formatBytes,
@@ -24,6 +25,8 @@ export function TrafficRow({ entry, collapsedCount = 1 }: Props) {
   });
   const reason = reasonLabel(entry.reasonCode);
   const mode = captureModeLabel(entry.captureMode);
+  const variant = grpcVariant(entry);
+  const grpcPath = variant ? parseGrpcPath(entry.path) : null;
 
   return (
     <Pressable
@@ -34,6 +37,7 @@ export function TrafficRow({ entry, collapsedCount = 1 }: Props) {
         <Badge label={entry.method} variant={methodBadgeVariant(entry.method)} />
         <Badge label={String(entry.status)} variant={statusBadgeVariant(entry.status)} />
         <Badge label={mode} variant="default" />
+        {variant ? <Badge label={grpcBadgeLabel(variant)} variant="info" /> : null}
         {entry.overrideApplied === 'response' ? <Badge label="MOCK" variant="warning" /> : null}
         {entry.overrideApplied === 'request' ? <Badge label="REQ↓" variant="info" /> : null}
         {reason ? <Badge label={reason} variant="default" /> : null}
@@ -42,10 +46,21 @@ export function TrafficRow({ entry, collapsedCount = 1 }: Props) {
           {time}
         </Text>
       </View>
-      <Text className="mt-2 font-mono text-sm" numberOfLines={1}>
-        <Text>{entry.path}</Text>
-        {entry.query ? <Text className="text-muted-foreground">?{entry.query}</Text> : null}
-      </Text>
+      {grpcPath ? (
+        <>
+          <Text className="mt-2 font-mono text-sm" numberOfLines={1}>
+            {grpcPath.shortLabel}
+          </Text>
+          <Text variant="muted" className="mt-0.5 font-mono text-xs" numberOfLines={1}>
+            {entry.path}
+          </Text>
+        </>
+      ) : (
+        <Text className="mt-2 font-mono text-sm" numberOfLines={1}>
+          <Text>{entry.path}</Text>
+          {entry.query ? <Text className="text-muted-foreground">?{entry.query}</Text> : null}
+        </Text>
+      )}
       <View className="mt-1.5 flex-row gap-3">
         <Text variant="muted" className="font-mono text-xs">
           {formatDuration(entry.timing.totalMs)}

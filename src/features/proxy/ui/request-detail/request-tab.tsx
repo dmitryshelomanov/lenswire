@@ -28,7 +28,7 @@ export function RequestTab({ entry }: { entry: TrafficEntry }) {
         title="Body"
         action={<OverrideActionLink entry={entry} kind="request" label="Rewrite" />}
       >
-        <BodyView body={entry.requestBody} />
+        <BodyView body={entry.requestBody} entry={entry} />
       </Section>
     </View>
   );

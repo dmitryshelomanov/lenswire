@@ -4,6 +4,7 @@ import * as React from 'react';
 import { Alert, Share, View } from 'react-native';
 
 import { methodBadgeVariant, statusBadgeVariant } from '@/entities/traffic/badges';
+import { grpcBadgeLabel, grpcVariant, parseGrpcPath } from '@/entities/traffic/grpc';
 import { entryUrl, formatDuration, type TrafficEntry } from '@/entities/traffic/types';
 import { Badge } from '@/shared/ui/badge';
 import { Button } from '@/shared/ui/button';
@@ -19,6 +20,8 @@ export function RequestDetailHeader({ entry }: { entry: TrafficEntry }) {
   const { copied, copy } = useCopiedFeedback();
   const curlOk = canExportCurl(entry);
   const harOk = canExportHar(entry);
+  const variant = grpcVariant(entry);
+  const grpcPath = variant ? parseGrpcPath(entry.path) : null;
 
   const onCopyCurl = React.useCallback(() => {
     if (!curlOk) {
@@ -47,11 +50,22 @@ export function RequestDetailHeader({ entry }: { entry: TrafficEntry }) {
         </Button>
         <Badge label={entry.method} variant={methodBadgeVariant(entry.method)} />
         <Badge label={String(entry.status)} variant={statusBadgeVariant(entry.status)} />
+        {variant ? <Badge label={grpcBadgeLabel(variant)} variant="info" /> : null}
         <Text variant="muted" className="ml-auto font-mono text-xs">
           {formatDuration(entry.timing.totalMs)}
         </Text>
       </View>
-      <Text className="mt-2 font-mono text-sm" numberOfLines={2}>
+      {grpcPath ? (
+        <Text className="mt-2 font-mono text-sm" numberOfLines={1}>
+          {grpcPath.shortLabel}
+        </Text>
+      ) : null}
+      <Text
+        className={
+          grpcPath ? 'text-muted-foreground mt-1 font-mono text-xs' : 'mt-2 font-mono text-sm'
+        }
+        numberOfLines={2}
+      >
         {entryUrl(entry)}
       </Text>
       <View className="mt-2 flex-row flex-wrap gap-2">
