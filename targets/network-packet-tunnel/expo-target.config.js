@@ -5,7 +5,7 @@ module.exports = (config) => ({
   displayName: 'Lenswire Tunnel',
   bundleIdentifier: '.network-packet-tunnel',
   deploymentTarget: '16.0',
-  frameworks: ['NetworkExtension', 'Network'],
+  frameworks: ['NetworkExtension', 'Network', 'Security'],
   entitlements: {
     'com.apple.developer.networking.networkextension': ['packet-tunnel-provider'],
     'com.apple.security.application-groups': ['group.com.lenswire.app'],
