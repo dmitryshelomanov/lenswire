@@ -1,8 +1,8 @@
-import { cn } from '@/shared/lib/utils';
 import { cva, type VariantProps } from 'class-variance-authority';
 import * as React from 'react';
 import { View, type ViewProps } from 'react-native';
 
+import { cn } from '@/shared/lib/utils';
 import { Text } from '@/shared/ui/text';
 
 const badgeVariants = cva('flex-row items-center rounded-md px-2 py-0.5', {

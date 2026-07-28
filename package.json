@@ -14,6 +14,8 @@
     "sim:mac-proxy-off": "bash scripts/sim-dev.sh mac-proxy-off",
     "android:emu-proxy": "bash scripts/android-dev.sh emu-proxy-hint",
     "android:trust-ca": "bash scripts/android-dev.sh trust-ca-hint",
+    "lint": "expo lint",
+    "lint:fix": "expo lint --fix",
     "lint:types": "tsc --noEmit",
     "format": "prettier --write .",
     "format:check": "prettier --check ."
@@ -49,6 +51,9 @@
   },
   "devDependencies": {
     "@types/react": "~19.2.2",
+    "eslint": "^9.39.5",
+    "eslint-config-expo": "~57.0.0",
+    "eslint-plugin-simple-import-sort": "^14.0.0",
     "prettier": "^3.9.6",
     "tailwindcss": "^3.4.17",
     "tailwindcss-animate": "^1.0.7",

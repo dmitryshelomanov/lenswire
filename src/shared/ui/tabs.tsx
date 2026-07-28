@@ -1,7 +1,7 @@
-import { cn } from '@/shared/lib/utils';
 import * as React from 'react';
 import { Pressable, View } from 'react-native';
 
+import { cn } from '@/shared/lib/utils';
 import { Text } from '@/shared/ui/text';
 
 type TabItem = {
@@ -30,10 +30,7 @@ function Tabs({ tabs, value, onChange, className }: TabsProps) {
               active ? 'border-foreground' : 'border-transparent',
             )}
           >
-            <Text
-              variant="small"
-              className={active ? 'text-foreground' : 'text-muted-foreground'}
-            >
+            <Text variant="small" className={active ? 'text-foreground' : 'text-muted-foreground'}>
               {tab.label}
             </Text>
           </Pressable>
