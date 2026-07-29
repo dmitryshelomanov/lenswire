@@ -9,13 +9,22 @@
     "scheme": "lenswire",
     "userInterfaceStyle": "dark",
     "newArchEnabled": true,
+    "splash": {
+      "image": "./assets/images/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#0B0F14"
+    },
     "ios": {
       "supportsTablet": true,
       "appleTeamId": "YOUR_APPLE_TEAM_ID",
       "bundleIdentifier": "com.lenswire.app",
       "entitlements": {
-        "com.apple.security.application-groups": ["group.com.lenswire.app"],
-        "com.apple.developer.networking.networkextension": ["packet-tunnel-provider"]
+        "com.apple.security.application-groups": [
+          "group.com.lenswire.app"
+        ],
+        "com.apple.developer.networking.networkextension": [
+          "packet-tunnel-provider"
+        ]
       },
       "infoPlist": {
         "NSAppTransportSecurity": {
@@ -35,6 +44,12 @@
     },
     "android": {
       "package": "com.lenswire.app",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/images/android-icon-foreground.png",
+        "backgroundImage": "./assets/images/android-icon-background.png",
+        "monochromeImage": "./assets/images/android-icon-monochrome.png",
+        "backgroundColor": "#0B0F14"
+      },
       "permissions": [
         "android.permission.INTERNET",
         "android.permission.FOREGROUND_SERVICE",
@@ -42,7 +57,20 @@
         "android.permission.POST_NOTIFICATIONS"
       ]
     },
-    "plugins": ["expo-router", "expo-font", "expo-dev-client", "@bacons/apple-targets"],
+    "web": {
+      "favicon": "./assets/images/favicon.png",
+      "splash": {
+        "image": "./assets/images/splash-icon.png",
+        "resizeMode": "contain",
+        "backgroundColor": "#0B0F14"
+      }
+    },
+    "plugins": [
+      "expo-router",
+      "expo-font",
+      "expo-dev-client",
+      "@bacons/apple-targets"
+    ],
     "experiments": {
       "typedRoutes": true
     }
