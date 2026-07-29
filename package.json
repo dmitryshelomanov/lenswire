@@ -44,6 +44,8 @@
     "sim:mac-proxy-off": "bash scripts/sim-dev.sh mac-proxy-off",
     "android:trust-ca": "bash scripts/android-trust-ca.sh",
     "smoke:ios-mitm": "bash scripts/ios-mitm-smoke.sh",
+    "check:ios-sync": "bash scripts/check-ios-sync.sh",
+    "test": "npm run check:ios-sync && vitest run",
     "lint": "expo lint",
     "lint:fix": "expo lint --fix",
     "lint:types": "tsc --noEmit",
@@ -89,6 +91,7 @@
     "prettier": "^3.9.6",
     "tailwindcss": "^3.4.17",
     "tailwindcss-animate": "^1.0.7",
-    "typescript": "~6.0.3"
+    "typescript": "~6.0.3",
+    "vitest": "^3.2.4"
   }
 }

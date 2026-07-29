@@ -4,6 +4,8 @@ import android.content.Context
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
 
 object CaptureStore {
   private const val PREFS = "lenswire_captures"
@@ -24,19 +26,18 @@ object CaptureStore {
     val obj = JSONObject()
     entry.forEach { (k, v) -> obj.put(k, toJsonValue(v)) }
     if (!obj.has("id")) obj.put("id", id)
-    File(dir, fileName).writeText(obj.toString())
+    writeTextAtomically(File(dir, fileName), obj.toString())
 
     val index = readIndex(dir)
-    val next = JSONArray()
-    next.put(fileName)
+    val next = buildNextIndex(fileName, index, MAX)
+    val keep = HashSet<String>(next.length())
+    for (i in 0 until next.length()) {
+      next.optString(i)?.takeIf { it.isNotBlank() }?.let { keep.add(it) }
+    }
     for (i in 0 until index.length()) {
       val name = index.optString(i)
-      if (name.isNullOrBlank() || name == fileName) continue
-      if (next.length() >= MAX) {
-        File(dir, name).delete()
-        continue
-      }
-      next.put(name)
+      if (name.isNullOrBlank() || keep.contains(name)) continue
+      File(dir, name).delete()
     }
     writeIndex(dir, next)
   }
@@ -61,6 +62,7 @@ object CaptureStore {
     if (valid.length() != index.length()) {
       writeIndex(dir, valid)
     }
+    cleanupOrphans(dir, valid)
     return out
   }
 
@@ -85,7 +87,61 @@ object CaptureStore {
   }
 
   private fun writeIndex(dir: File, index: JSONArray) {
-    File(dir, INDEX_NAME).writeText(index.toString())
+    writeTextAtomically(File(dir, INDEX_NAME), index.toString())
+  }
+
+  internal fun buildNextIndex(latestFileName: String, previous: JSONArray, maxItems: Int): JSONArray {
+    val next = JSONArray()
+    next.put(latestFileName)
+    for (i in 0 until previous.length()) {
+      val name = previous.optString(i)
+      if (name.isNullOrBlank() || name == latestFileName) continue
+      if (next.length() >= maxItems) break
+      next.put(name)
+    }
+    return next
+  }
+
+  private fun writeTextAtomically(target: File, text: String) {
+    val tmp = File(target.parentFile, "${target.name}.tmp-${System.nanoTime()}")
+    tmp.writeText(text)
+    try {
+      Files.move(
+        tmp.toPath(),
+        target.toPath(),
+        StandardCopyOption.REPLACE_EXISTING,
+        StandardCopyOption.ATOMIC_MOVE
+      )
+      return
+    } catch (_: Exception) {
+      // Continue with non-atomic move fallback below.
+    }
+    runCatching {
+      Files.move(tmp.toPath(), target.toPath(), StandardCopyOption.REPLACE_EXISTING)
+    }.getOrElse {
+      target.writeText(text)
+      tmp.delete()
+    }
+  }
+
+  private fun cleanupOrphans(dir: File, index: JSONArray) {
+    val keep = HashSet<String>(index.length() + 1)
+    keep.add(INDEX_NAME)
+    for (i in 0 until index.length()) {
+      val name = index.optString(i)
+      if (!name.isNullOrBlank()) keep.add(name)
+    }
+    dir.listFiles()?.forEach { file ->
+      if (!file.isFile) return@forEach
+      if (keep.contains(file.name)) return@forEach
+      if (file.name.contains(".tmp-")) {
+        file.delete()
+        return@forEach
+      }
+      if (file.extension == "json") {
+        file.delete()
+      }
+    }
   }
 
   private fun migrateAwayFromPrefs(context: Context) {

@@ -16,6 +16,8 @@ export type GrpcTrailerMap = Record<string, string>;
 
 const TRAILER_FLAG = 0x80;
 const COMPRESSED_FLAG = 0x01;
+const DEFAULT_MAX_DEPTH = 5;
+const DEFAULT_MAX_STRINGS = 200;
 
 export function base64ToUint8Array(base64: string): Uint8Array {
   const normalized = base64.replace(/[^A-Za-z0-9+/=]/g, '');
@@ -94,64 +96,81 @@ export function parseGrpcTrailers(payload: Uint8Array): GrpcTrailerMap {
  * Skips nested-message-looking blobs that fail UTF-8 / printable checks.
  */
 export function harvestProtobufStrings(payload: Uint8Array, minLength = 3): string[] {
+  return harvestProtobufStringsWithLimits(payload, {
+    minLength,
+    maxDepth: DEFAULT_MAX_DEPTH,
+    maxStrings: DEFAULT_MAX_STRINGS,
+  });
+}
+
+export function harvestProtobufStringsWithLimits(
+  payload: Uint8Array,
+  {
+    minLength = 3,
+    maxDepth = DEFAULT_MAX_DEPTH,
+    maxStrings = DEFAULT_MAX_STRINGS,
+  }: {
+    minLength?: number;
+    maxDepth?: number;
+    maxStrings?: number;
+  } = {},
+): string[] {
   const found: string[] = [];
   const seen = new Set<string>();
-  let i = 0;
-
-  while (i < payload.length) {
-    const tag = readVarint(payload, i);
-    if (!tag) break;
-    i = tag.next;
-    const wireType = tag.value & 0x07;
-
-    if (wireType === 0) {
-      // varint
-      const v = readVarint(payload, i);
-      if (!v) break;
-      i = v.next;
-      continue;
-    }
-    if (wireType === 1) {
-      // 64-bit
-      if (i + 8 > payload.length) break;
-      i += 8;
-      continue;
-    }
-    if (wireType === 5) {
-      // 32-bit
-      if (i + 4 > payload.length) break;
-      i += 4;
-      continue;
-    }
-    if (wireType === 2) {
-      // length-delimited
-      const len = readVarint(payload, i);
-      if (!len) break;
-      i = len.next;
-      if (len.value < 0 || i + len.value > payload.length) break;
-      const slice = payload.subarray(i, i + len.value);
-      i += len.value;
-      const str = tryPrintableUtf8(slice, minLength);
-      if (str && !seen.has(str)) {
-        seen.add(str);
-        found.push(str);
-      }
-      // Also harvest nested messages (common in protobuf).
-      if (slice.length >= 2 && looksLikeProtobuf(slice)) {
-        for (const nested of harvestProtobufStrings(slice, minLength)) {
-          if (!seen.has(nested)) {
-            seen.add(nested);
-            found.push(nested);
-          }
-        }
-      }
-      continue;
-    }
-    // Unknown / start-group / end-group — stop to avoid garbage.
-    break;
-  }
-
+  collectStrings(payload, 0);
   return found;
+
+  function collectStrings(bytes: Uint8Array, depth: number): void {
+    if (depth > maxDepth || found.length >= maxStrings) return;
+    let i = 0;
+    while (i < bytes.length && found.length < maxStrings) {
+      const tag = readVarint(bytes, i);
+      if (!tag) break;
+      i = tag.next;
+      const wireType = tag.value & 0x07;
+
+      if (wireType === 0) {
+        // varint
+        const v = readVarint(bytes, i);
+        if (!v) break;
+        i = v.next;
+        continue;
+      }
+      if (wireType === 1) {
+        // 64-bit
+        if (i + 8 > bytes.length) break;
+        i += 8;
+        continue;
+      }
+      if (wireType === 5) {
+        // 32-bit
+        if (i + 4 > bytes.length) break;
+        i += 4;
+        continue;
+      }
+      if (wireType === 2) {
+        // length-delimited
+        const len = readVarint(bytes, i);
+        if (!len) break;
+        i = len.next;
+        if (len.value < 0 || i + len.value > bytes.length) break;
+        const slice = bytes.subarray(i, i + len.value);
+        i += len.value;
+        const str = tryPrintableUtf8(slice, minLength);
+        if (str && !seen.has(str)) {
+          seen.add(str);
+          found.push(str);
+        }
+        // Also harvest nested messages (common in protobuf).
+        if (slice.length >= 2 && looksLikeProtobuf(slice)) {
+          collectStrings(slice, depth + 1);
+        }
+        continue;
+      }
+      // Unknown / start-group / end-group — stop to avoid garbage.
+      break;
+    }
+  }
 }
 
 function looksLikeProtobuf(bytes: Uint8Array): boolean {

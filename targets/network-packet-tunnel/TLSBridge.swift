@@ -69,6 +69,7 @@ final class TLSBridge {
 
   enum TLSError: Error {
     case contextCreateFailed
+    case configureFailed(String, OSStatus)
     case handshakeFailed(OSStatus)
     case readFailed(OSStatus)
     case writeFailed(OSStatus)
@@ -100,19 +101,31 @@ final class TLSBridge {
     }
     self.context = ctx
 
-    _ = ST_SSLSetIOFuncs(ctx, TLSBridge.sslRead, TLSBridge.sslWrite)
+    try checkStatus(
+      ST_SSLSetIOFuncs(ctx, TLSBridge.sslRead, TLSBridge.sslWrite),
+      operation: "SSLSetIOFuncs"
+    )
     let unmanaged = Unmanaged.passUnretained(self).toOpaque()
-    _ = ST_SSLSetConnection(ctx, unmanaged)
+    try checkStatus(
+      ST_SSLSetConnection(ctx, unmanaged),
+      operation: "SSLSetConnection"
+    )
 
     if role == .server, let identity {
       let certs: [Any] = [identity]
-      _ = ST_SSLSetCertificate(ctx, certs as CFArray)
+      try checkStatus(
+        ST_SSLSetCertificate(ctx, certs as CFArray),
+        operation: "SSLSetCertificate"
+      )
     }
 
     // Prefer HTTP/1.1 so we can parse requests without HTTP/2 framing.
     if #available(iOS 11.0, *) {
       let protocols = ["http/1.1"] as CFArray
-      _ = ST_SSLSetALPNProtocols(ctx, protocols)
+      try checkStatus(
+        ST_SSLSetALPNProtocols(ctx, protocols),
+        operation: "SSLSetALPNProtocols"
+      )
     }
   }
 
@@ -183,6 +196,13 @@ final class TLSBridge {
   }
 
   // MARK: - NW receive → inbox
+
+  private func checkStatus(_ status: OSStatus, operation: String) throws {
+    if status == errSecSuccess {
+      return
+    }
+    throw TLSError.configureFailed(operation, status)
+  }
 
   private func pumpReceive(wait: Bool) throws {
     lock.lock()
