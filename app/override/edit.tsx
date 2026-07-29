@@ -5,14 +5,22 @@ import * as React from 'react';
 import { Alert, Pressable, ScrollView, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import type { HeaderMap, OverrideKind, OverrideRule, TrafficEntry } from '@/entities/traffic/types';
+import type { OverrideKind, OverrideRule } from '@/entities/traffic/types';
+import {
+  guessContentType,
+  headersFromRows,
+  newHeaderRowId,
+  rowsFromHeaders,
+  seedOverrideDraft,
+  type HeaderRow,
+} from '@/features/proxy/lib/override-editor';
 import {
   contentTypeFromHeaders,
   headersFromEntry,
-  ruleFromEntry,
   useOverrides,
 } from '@/features/proxy/hooks/use-overrides';
 import { useProxyEntries } from '@/features/proxy/store';
+import { HeaderRowsEditor } from '@/features/proxy/ui/override/header-rows-editor';
 import { Section } from '@/features/proxy/ui/request-detail/section';
 import { Badge } from '@/shared/ui/badge';
 import { Button } from '@/shared/ui/button';
@@ -40,63 +48,6 @@ const KIND_OPTIONS: {
   },
 ];
 
-type HeaderRow = {
-  id: string;
-  name: string;
-  value: string;
-};
-
-function newRowId(): string {
-  return `hdr_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
-}
-
-function rowsFromHeaders(headers: HeaderMap | undefined): HeaderRow[] {
-  return Object.entries(headers ?? {}).map(([name, value]) => ({
-    id: newRowId(),
-    name,
-    value,
-  }));
-}
-
-function headersFromRows(rows: HeaderRow[]): HeaderMap {
-  const out: HeaderMap = {};
-  for (const row of rows) {
-    const name = row.name.trim();
-    if (!name) continue;
-    out[name] = row.value;
-  }
-  return out;
-}
-
-function guessContentType(fileName: string): string {
-  const lower = fileName.toLowerCase();
-  if (lower.endsWith('.json')) return 'application/json';
-  if (lower.endsWith('.html') || lower.endsWith('.htm')) return 'text/html';
-  if (lower.endsWith('.xml')) return 'application/xml';
-  if (lower.endsWith('.txt')) return 'text/plain';
-  if (lower.endsWith('.csv')) return 'text/csv';
-  if (lower.endsWith('.js')) return 'application/javascript';
-  return 'text/plain';
-}
-
-function seedFromSource(
-  existing: OverrideRule | undefined,
-  entry: TrafficEntry | undefined,
-  kind: OverrideKind,
-): { draft: OverrideRule; headerRows: HeaderRow[] } | null {
-  if (existing) {
-    return {
-      draft: { ...existing, headers: existing.headers ?? {} },
-      headerRows: rowsFromHeaders(existing.headers),
-    };
-  }
-  if (entry) {
-    const next = ruleFromEntry(entry, kind);
-    return { draft: next, headerRows: rowsFromHeaders(next.headers) };
-  }
-  return null;
-}
-
 export default function OverrideEditScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{
@@ -118,7 +69,7 @@ export default function OverrideEditScreen() {
 
   // Seed editable draft once rules/entry are available (adjust state while rendering).
   if (ready && !draft) {
-    const seeded = seedFromSource(existing, entry, kindParam);
+    const seeded = seedOverrideDraft(existing, entry, kindParam);
     if (seeded) {
       setDraft(seeded.draft);
       setHeaderRows(seeded.headerRows);
@@ -356,7 +307,7 @@ export default function OverrideEditScreen() {
             size="sm"
             className="mt-2 self-start"
             onPress={() =>
-              updateHeaderRows([...headerRows, { id: newRowId(), name: '', value: '' }])
+              updateHeaderRows([...headerRows, { id: newHeaderRowId(), name: '', value: '' }])
             }
           >
             <Icon as={Plus} className="text-foreground" size={14} />
@@ -408,68 +359,5 @@ export default function OverrideEditScreen() {
         </Button>
       </View>
     </SafeAreaView>
-  );
-}
-
-function HeaderRowsEditor({
-  rows,
-  onChange,
-}: {
-  rows: HeaderRow[];
-  onChange: (rows: HeaderRow[]) => void;
-}) {
-  if (rows.length === 0) {
-    return (
-      <Text variant="muted" className="mt-2">
-        (none)
-      </Text>
-    );
-  }
-
-  return (
-    <View className="mt-2">
-      {rows.map((row, index) => {
-        const isLast = index === rows.length - 1;
-        return (
-          <View
-            key={row.id}
-            className={`flex-row items-start gap-1 py-2 ${isLast ? '' : 'border-border border-b'}`}
-          >
-            <View className="min-w-0 flex-1 gap-0.5">
-              <TextInput
-                value={row.name}
-                autoCapitalize="none"
-                autoCorrect={false}
-                placeholder="Header-Name"
-                placeholderTextColor="hsl(0 0% 63.9%)"
-                onChangeText={(name) =>
-                  onChange(rows.map((item) => (item.id === row.id ? { ...item, name } : item)))
-                }
-                className="text-sky-400 p-0 font-mono text-xs"
-              />
-              <TextInput
-                value={row.value}
-                autoCapitalize="none"
-                autoCorrect={false}
-                placeholder="value (empty = remove)"
-                placeholderTextColor="hsl(0 0% 63.9%)"
-                onChangeText={(value) =>
-                  onChange(rows.map((item) => (item.id === row.id ? { ...item, value } : item)))
-                }
-                className="text-foreground p-0 font-mono text-sm"
-              />
-            </View>
-            <Button
-              variant="ghost"
-              size="icon"
-              accessibilityLabel="Remove header"
-              onPress={() => onChange(rows.filter((item) => item.id !== row.id))}
-            >
-              <Icon as={Trash2} className="text-muted-foreground" size={14} />
-            </Button>
-          </View>
-        );
-      })}
-    </View>
   );
 }
