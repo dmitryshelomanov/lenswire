@@ -2,7 +2,6 @@ import { Pause, Play, Search, Trash2 } from 'lucide-react-native';
 import * as React from 'react';
 import { View } from 'react-native';
 
-import type { HttpMethod, ResourceType } from '@/entities/traffic/types';
 import { Button } from '@/shared/ui/button';
 import { Icon } from '@/shared/ui/icon';
 import { Input } from '@/shared/ui/input';
@@ -10,9 +9,11 @@ import { Text } from '@/shared/ui/text';
 
 import { useProxyEntries, useProxyFilters, useProxyStatus } from '../../store';
 import { METHODS, RESOURCE_TYPES } from './constants';
+import { hasAdvancedFilters, optionLabel } from './helpers';
 import { FilterSelect } from './filter-select';
 import { MoreFilters } from './more-filters';
 import { ProbeTypeModal } from './probe-type-modal';
+import type { MethodFilterValue, SchemeFilterValue } from './types';
 
 type Props = {
   showControls?: boolean;
@@ -29,15 +30,11 @@ export function TrafficToolbar({ showControls = true, showFilters = true }: Prop
 
   if (!showToolbar) return null;
 
-  const method = filters.method ?? 'ALL';
+  const method: MethodFilterValue = filters.method ?? 'ALL';
   const resourceType = filters.resourceType ?? 'ALL';
-  const methodLabel = METHODS.find((o) => o.value === method)?.label ?? 'All';
-  const resourceLabel = RESOURCE_TYPES.find((o) => o.value === resourceType)?.label ?? 'All';
-  const moreActive =
-    filters.statusClass !== 'ALL' ||
-    filters.scheme !== 'ALL' ||
-    filters.captureMode !== 'ALL' ||
-    Boolean(filters.overriddenOnly);
+  const methodLabel = optionLabel(METHODS, method);
+  const resourceLabel = optionLabel(RESOURCE_TYPES, resourceType);
+  const moreActive = hasAdvancedFilters(filters);
 
   return (
     <View className="border-border gap-3 border-b px-4 py-3 sm:px-6">
@@ -105,7 +102,7 @@ export function TrafficToolbar({ showControls = true, showFilters = true }: Prop
               active={method !== 'ALL'}
               options={METHODS}
               selected={method}
-              onSelect={(next) => setFilters({ method: next as HttpMethod | 'ALL' })}
+              onSelect={(next) => setFilters({ method: next as MethodFilterValue })}
             />
             <FilterSelect
               title="Type"
@@ -113,12 +110,12 @@ export function TrafficToolbar({ showControls = true, showFilters = true }: Prop
               active={resourceType !== 'ALL'}
               options={RESOURCE_TYPES}
               selected={resourceType}
-              onSelect={(next) => setFilters({ resourceType: next as ResourceType })}
+              onSelect={(next) => setFilters({ resourceType: next as typeof resourceType })}
             />
             <MoreFilters
               active={moreActive}
               statusClass={filters.statusClass ?? 'ALL'}
-              scheme={filters.scheme ?? 'ALL'}
+              scheme={(filters.scheme ?? 'ALL') as SchemeFilterValue}
               captureMode={filters.captureMode ?? 'ALL'}
               overriddenOnly={Boolean(filters.overriddenOnly)}
               onChange={setFilters}

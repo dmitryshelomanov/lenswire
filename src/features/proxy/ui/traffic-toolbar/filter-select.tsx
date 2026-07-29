@@ -7,7 +7,7 @@ import { Button } from '@/shared/ui/button';
 import { Icon } from '@/shared/ui/icon';
 import { Text } from '@/shared/ui/text';
 
-import type { FilterOption } from './constants';
+import type { TrafficFilterOption } from './types';
 
 export function FilterSelect({
   title,
@@ -20,7 +20,7 @@ export function FilterSelect({
   title: string;
   valueLabel: string;
   active: boolean;
-  options: FilterOption[];
+  options: TrafficFilterOption[];
   selected: string;
   onSelect: (value: string) => void;
 }) {
@@ -31,7 +31,8 @@ export function FilterSelect({
       <Pressable
         onPress={() => setOpen(true)}
         className={cn(
-          'flex-row items-center gap-1.5 rounded-md border px-2.5 py-1.5',
+          // Match `Input` height (`h-10`) on the home toolbar row.
+          'flex-row items-center gap-1.5 rounded-md border px-3 h-10',
           active ? 'border-foreground bg-secondary' : 'border-border bg-background',
         )}
       >

@@ -2,7 +2,6 @@ import { ChevronDown } from 'lucide-react-native';
 import * as React from 'react';
 import { Modal, Pressable, ScrollView, View } from 'react-native';
 
-import type { StatusClass } from '@/entities/traffic/types';
 import { cn } from '@/shared/lib/utils';
 import { Button } from '@/shared/ui/button';
 import { Icon } from '@/shared/ui/icon';
@@ -11,6 +10,12 @@ import { Text } from '@/shared/ui/text';
 import { CAPTURE_MODES, SCHEMES, STATUS_CLASSES } from './constants';
 import { FilterChip } from './filter-chip';
 import { FilterSection } from './filter-section';
+import type {
+  CaptureModeFilterValue,
+  MoreFiltersPatch,
+  SchemeFilterValue,
+  StatusFilterValue,
+} from './types';
 
 export function MoreFilters({
   active,
@@ -21,16 +26,11 @@ export function MoreFilters({
   onChange,
 }: {
   active: boolean;
-  statusClass: StatusClass | 'ALL';
-  scheme: 'ALL' | 'http' | 'https';
-  captureMode: 'ALL' | 'http' | 'mitm' | 'tunnel';
+  statusClass: StatusFilterValue;
+  scheme: SchemeFilterValue;
+  captureMode: CaptureModeFilterValue;
   overriddenOnly: boolean;
-  onChange: (patch: {
-    statusClass?: StatusClass | 'ALL';
-    scheme?: 'ALL' | 'http' | 'https';
-    captureMode?: 'ALL' | 'http' | 'mitm' | 'tunnel';
-    overriddenOnly?: boolean;
-  }) => void;
+  onChange: (patch: MoreFiltersPatch) => void;
 }) {
   const [open, setOpen] = React.useState(false);
 
@@ -39,7 +39,8 @@ export function MoreFilters({
       <Pressable
         onPress={() => setOpen(true)}
         className={cn(
-          'flex-row items-center gap-1.5 rounded-md border px-2.5 py-1.5',
+          // Match `Input` height (`h-10`) for consistent toolbar row.
+          'flex-row items-center gap-1.5 rounded-md border px-3 h-10',
           active ? 'border-foreground bg-secondary' : 'border-border bg-background',
         )}
       >
@@ -65,21 +66,19 @@ export function MoreFilters({
                 title="Status"
                 options={STATUS_CLASSES}
                 selected={statusClass}
-                onSelect={(value) => onChange({ statusClass: value as StatusClass | 'ALL' })}
+                onSelect={(value) => onChange({ statusClass: value as StatusFilterValue })}
               />
               <FilterSection
                 title="Scheme"
                 options={SCHEMES}
                 selected={scheme}
-                onSelect={(value) => onChange({ scheme: value as 'ALL' | 'http' | 'https' })}
+                onSelect={(value) => onChange({ scheme: value as SchemeFilterValue })}
               />
               <FilterSection
                 title="Mode"
                 options={CAPTURE_MODES}
                 selected={captureMode}
-                onSelect={(value) =>
-                  onChange({ captureMode: value as 'ALL' | 'http' | 'mitm' | 'tunnel' })
-                }
+                onSelect={(value) => onChange({ captureMode: value as CaptureModeFilterValue })}
               />
               <View className="mt-2">
                 <Text variant="small" className="text-muted-foreground mb-1.5">

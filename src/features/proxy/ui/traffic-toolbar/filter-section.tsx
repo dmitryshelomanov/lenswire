@@ -2,7 +2,7 @@ import { View } from 'react-native';
 
 import { Text } from '@/shared/ui/text';
 
-import type { FilterOption } from './constants';
+import type { TrafficFilterOption } from './types';
 import { FilterChip } from './filter-chip';
 
 export function FilterSection({
@@ -12,7 +12,7 @@ export function FilterSection({
   onSelect,
 }: {
   title: string;
-  options: FilterOption[];
+  options: TrafficFilterOption[];
   selected: string;
   onSelect: (value: string) => void;
 }) {

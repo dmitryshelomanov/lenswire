@@ -1,8 +1,13 @@
 import type { HttpMethod, ProbeType, ResourceType, StatusClass } from '@/entities/traffic/types';
+import type {
+  CaptureModeFilterValue,
+  MethodFilterValue,
+  SchemeFilterValue,
+  StatusFilterValue,
+  TrafficFilterOption,
+} from './types';
 
-export type FilterOption = { value: string; label: string };
-
-export const METHODS: { value: HttpMethod | 'ALL'; label: string }[] = [
+export const METHODS: TrafficFilterOption<MethodFilterValue>[] = [
   { value: 'ALL', label: 'All' },
   { value: 'GET', label: 'GET' },
   { value: 'POST', label: 'POST' },
@@ -12,7 +17,7 @@ export const METHODS: { value: HttpMethod | 'ALL'; label: string }[] = [
   { value: 'CONNECT', label: 'CONNECT' },
 ];
 
-export const RESOURCE_TYPES: { value: ResourceType; label: string }[] = [
+export const RESOURCE_TYPES: TrafficFilterOption<ResourceType>[] = [
   { value: 'ALL', label: 'All' },
   { value: 'xhr', label: 'Fetch/XHR' },
   { value: 'grpc', label: 'gRPC' },
@@ -25,7 +30,7 @@ export const RESOURCE_TYPES: { value: ResourceType; label: string }[] = [
   { value: 'other', label: 'Other' },
 ];
 
-export const STATUS_CLASSES: { value: StatusClass | 'ALL'; label: string }[] = [
+export const STATUS_CLASSES: TrafficFilterOption<StatusFilterValue>[] = [
   { value: 'ALL', label: 'All' },
   { value: '2xx', label: '2xx' },
   { value: '3xx', label: '3xx' },
@@ -33,13 +38,13 @@ export const STATUS_CLASSES: { value: StatusClass | 'ALL'; label: string }[] = [
   { value: '5xx', label: '5xx' },
 ];
 
-export const SCHEMES: { value: 'ALL' | 'http' | 'https'; label: string }[] = [
+export const SCHEMES: TrafficFilterOption<SchemeFilterValue>[] = [
   { value: 'ALL', label: 'All' },
   { value: 'http', label: 'HTTP' },
   { value: 'https', label: 'HTTPS' },
 ];
 
-export const CAPTURE_MODES: { value: 'ALL' | 'http' | 'mitm' | 'tunnel'; label: string }[] = [
+export const CAPTURE_MODES: TrafficFilterOption<CaptureModeFilterValue>[] = [
   { value: 'ALL', label: 'All' },
   { value: 'http', label: 'HTTP' },
   { value: 'mitm', label: 'MITM' },
