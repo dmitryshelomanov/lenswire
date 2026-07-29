@@ -1,8 +1,36 @@
-# Lenswire
+<div align="center">
+  <img src="./assets/images/splash-icon.png" alt="Lenswire" width="120" />
+  <h1>Lenswire</h1>
+  <p>
+    <strong>Native MITM inspector</strong> · <strong>iOS Packet Tunnel</strong> · <strong>Android VpnService</strong>
+  </p>
+</div>
 
-[github.com/dmitryshelomanov/lenswire](https://github.com/dmitryshelomanov/lenswire) · Dmitry Shelomanov
+<br />
 
-Native HTTP(S) inspector — ProxyMan-style. On iOS device: Packet Tunnel + local MITM proxy. Simulator Dev Mode for HTTP (and HTTPS after Generate CA + `sim:trust-ca`).
+<div>
+<p>Lenswire is a native HTTP(S) inspector with a local MITM proxy. It can decrypt HTTPS traffic when Lenswire CA is installed and <code>HTTPS decryption</code> is enabled.</p>
+<ul>
+<li>HTTPS decryption with Lenswire CA (Generate CA → Install CA + <code>HTTPS decryption</code> toggle)</li>
+<li>Device VPN + local MITM: iOS (Packet Tunnel) and Android (VpnService → tun2socks → SOCKS bridge)</li>
+<li>iOS Simulator dev mode: in-process <code>LocalProxyServer</code> (fast iteration)</li>
+<li>Traffic filters: method/scheme/status/resource type/query + “overridden only” view</li>
+<li>Override rules: request rewrite + response mocks (status, content-type, headers, body)</li>
+<li>Headers editing includes Cookie (any header can be changed; empty value removes it)</li>
+<li>Fail-open MITM + session bypass with clear reasons (“trust?”, “bypassed”, tunnel-only)</li>
+<li>Decrypted request visibility (headers + bodies) and HAR export for captures</li>
+<li><code>sandbox/</code> app: validate User CA trust and run deterministic HTTPS probes</li>
+<li>Scripted trust workflow: <code>sim:trust-ca</code> + <code>android:trust-ca</code></li>
+</ul>
+<div style="display:flex; gap:12px; justify-content:center; align-items:flex-start; margin-top:14px; flex-wrap:wrap;">
+  <img src="./docs/images/lenswire-screenshot-1.png" alt="Lenswire traffic list screenshot" width="320" />
+  <img src="./docs/images/lenswire-screenshot-2.png" alt="Lenswire domains/filter screenshot" width="320" />
+</div>
+</div>
+
+<br />
+
+> Primary focus: decrypt and inspect real device traffic via iOS Packet Tunnel / Android VpnService.
 
 ## Requirements
 
@@ -133,20 +161,21 @@ Notes:
 
 ## Architecture
 
+VPN layer (Packet Tunnel on iOS / VpnService on Android) intercepts device traffic and forwards it to a local MITM (`LocalProxyServer`). HTTPS decryption works only when Lenswire CA is installed and `HTTPS decryption` is enabled.
+
 ```
 iOS device:  apps → Packet Tunnel → LocalProxyServer (MITM) → UI
 iOS Sim:     Start → in-process LocalProxyServer → UI
 Android:     VpnService(TUN) → tun2socks → SOCKS bridge → LocalProxyServer(MITM) → UI
 ```
 
-| Path                             | Role                           |
-| -------------------------------- | ------------------------------ |
-| `app/`                           | Expo Router UI                 |
-| `sandbox/`                       | RN probe app (User CA + mocks) |
-| `modules/lenswire-proxy/`        | Native bridge (iOS + Android)  |
-| `targets/network-packet-tunnel/` | iOS VPN extension              |
-| `scripts/sim-dev.sh`             | iOS Simulator CA / Mac proxy   |
-| `scripts/android-trust-ca.sh`    | Android emulator System CA     |
+Key components:
+
+- `targets/network-packet-tunnel/`: iOS Packet Tunnel (VPN interception)
+- `modules/lenswire-proxy/`: native bridge wiring the tunnel/proxy to the app
+- `LocalProxyServer`: local MITM proxy (HTTPS decryption + request data to UI)
+- `sandbox/`: separate RN probe app (checks User CA trust + mocks)
+- `app/`: UI and settings (CA trust / `HTTPS decryption`)
 
 ## Scripts
 
@@ -157,3 +186,13 @@ Android:     VpnService(TUN) → tun2socks → SOCKS bridge → LocalProxyServer
 | `npm run sim:trust-ca`                      | Trust app-generated CA in booted iOS Simulator     |
 | `npm run android:trust-ca`                  | Install Lenswire CA into System store (rooted AVD) |
 | `npm run sim:mac-proxy-on/off`              | Mac HTTP(S) proxy helpers                          |
+
+## About
+
+Built by **[Dmitry Shelomanov](https://dmitryshelomanov.github.io/)** — Senior Frontend / React Native developer.
+
+## Socials
+
+- [Personal site](https://dmitryshelomanov.github.io/)
+- [Telegram](https://t.me/dmitryshelomanov)
+- [GitHub](https://github.com/dmitryshelomanov)
