@@ -11,7 +11,7 @@ import { TrafficEmptyState } from '@/features/proxy/ui/traffic-empty';
 import { TrafficToolbar } from '@/features/proxy/ui/traffic-toolbar';
 import { FilterSelect } from '@/features/proxy/ui/traffic-toolbar/filter-select';
 import type { TrafficEntry } from '@/entities/traffic/types';
-import { clientNameOfEntry } from '@/entities/traffic/client-name';
+import { clientAttributionKindOfEntry, clientNameOfEntry } from '@/entities/traffic/client-name';
 import { cn } from '@/shared/lib/utils';
 import { Icon } from '@/shared/ui/icon';
 import { Badge } from '@/shared/ui/badge';
@@ -22,6 +22,7 @@ type DomainGroup = {
   host: string;
   totalRequests: number;
   clientName: string;
+  clientAttributionKind: 'exact' | 'heuristic' | 'unknown';
 };
 
 export default function HomeScreen() {
@@ -125,7 +126,17 @@ export default function HomeScreen() {
                     <Text numberOfLines={1} className="shrink font-mono text-sm">
                       {item.host}
                     </Text>
-                    <Badge label={item.clientName} variant="outline" className="shrink-0" />
+                    <Badge
+                      label={item.clientName}
+                      variant={
+                        item.clientAttributionKind === 'exact'
+                          ? 'success'
+                          : item.clientAttributionKind === 'heuristic'
+                            ? 'outline'
+                            : 'default'
+                      }
+                      className="shrink-0"
+                    />
                   </View>
                   <View className="flex-row items-center gap-1.5">
                     <Text variant="muted" className="font-mono text-xs">
@@ -146,19 +157,25 @@ export default function HomeScreen() {
 
 function groupByDomain(entries: TrafficEntry[]): DomainGroup[] {
   const ordered: DomainGroup[] = [];
-  const byHost = new Map<string, { group: DomainGroup; counts: Map<string, number>; bestCount: number }>();
+  const byHost = new Map<
+    string,
+    { group: DomainGroup; counts: Map<string, number>; bestCount: number }
+  >();
 
   for (const entry of entries) {
+    const name = clientNameOfEntry(entry);
+    const kind = clientAttributionKindOfEntry(entry);
+    const counterKey = `${kind}:${name}`;
     const existing = byHost.get(entry.host);
     if (existing) {
       existing.group.totalRequests += 1;
-      const name = clientNameOfEntry(entry);
-      const prev = existing.counts.get(name) ?? 0;
+      const prev = existing.counts.get(counterKey) ?? 0;
       const nextCount = prev + 1;
-      existing.counts.set(name, nextCount);
+      existing.counts.set(counterKey, nextCount);
       if (nextCount > existing.bestCount) {
         existing.bestCount = nextCount;
         existing.group.clientName = name;
+        existing.group.clientAttributionKind = kind;
       }
       continue;
     }
@@ -166,11 +183,11 @@ function groupByDomain(entries: TrafficEntry[]): DomainGroup[] {
     const next: DomainGroup = {
       host: entry.host,
       totalRequests: 1,
-      clientName: clientNameOfEntry(entry),
+      clientName: name,
+      clientAttributionKind: kind,
     };
     const counts = new Map<string, number>();
-    const initialName = next.clientName;
-    counts.set(initialName, 1);
+    counts.set(counterKey, 1);
     byHost.set(entry.host, { group: next, counts, bestCount: 1 });
     ordered.push(next);
   }

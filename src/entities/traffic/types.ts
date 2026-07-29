@@ -50,6 +50,8 @@ export type HostnameConfidence = 'high' | 'medium' | 'low' | string;
 
 export type CaptureMode = 'http' | 'mitm' | 'tunnel' | string;
 
+export type ClientAttributionKind = 'exact' | 'heuristic' | 'unknown';
+
 export type OverrideKind = 'request' | 'response';
 
 export type OverrideApplied = OverrideKind;
@@ -88,6 +90,10 @@ export type TrafficEntry = {
   timing: TrafficTiming;
   /** Set when a content override mutated this capture. */
   overrideApplied?: OverrideApplied | null;
+  clientLabel?: string | null;
+  clientPackage?: string | null;
+  clientUid?: number | null;
+  clientAttributionKind?: ClientAttributionKind | string | null;
   reasonCode?: CaptureReasonCode;
   hostnameSource?: HostnameSource;
   hostnameConfidence?: HostnameConfidence;

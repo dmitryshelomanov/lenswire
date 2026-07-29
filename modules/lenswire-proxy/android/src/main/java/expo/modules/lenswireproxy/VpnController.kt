@@ -70,7 +70,8 @@ object VpnController {
       readTimeout = 20_000
       requestMethod = probe.method
       instanceFollowRedirects = true
-      probe.headers.forEach { (k, v) -> setRequestProperty(k, v) }
+      val effectiveHeaders = probe.headers + ClientAttributionHeaders.probeHeaders(context)
+      effectiveHeaders.forEach { (k, v) -> setRequestProperty(k, v) }
       if (probe.body != null) {
         doOutput = true
         // Force Content-Length so LocalProxyServer can read the body (no chunked).

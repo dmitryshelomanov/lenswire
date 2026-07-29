@@ -108,8 +108,10 @@ class LocalProxyServer(private val context: Context) {
       val id = UUID.randomUUID().toString()
       val startedAt = System.currentTimeMillis()
 
+      val (sanitizedHeaders, clientAttribution) = ClientAttributionHeaders.stripAndExtract(headers)
+
       if (method == "CONNECT") {
-        handleConnect(target, headers, client, id, startedAt)
+        handleConnect(target, sanitizedHeaders, clientAttribution, client, id, startedAt)
         return
       }
 
@@ -143,7 +145,8 @@ class LocalProxyServer(private val context: Context) {
         host = host,
         path = path,
         query = query,
-        headers = headers,
+        headers = sanitizedHeaders,
+        clientAttribution = clientAttribution,
         requestBody = requestBody,
         client = client,
       )
@@ -158,6 +161,7 @@ class LocalProxyServer(private val context: Context) {
   private fun handleConnect(
     target: String,
     headers: Map<String, String>,
+    clientAttribution: ClientAttribution?,
     client: Socket,
     id: String,
     startedAt: Long,
@@ -228,6 +232,7 @@ class LocalProxyServer(private val context: Context) {
         id = id,
         startedAt = startedAt,
         reasonCode = reasonCode ?: "passthrough",
+        clientAttribution = clientAttribution,
         hostnameSource = hostnameSource,
         hostnameConfidence = hostnameConfidence,
         sniHostname = sniHostname,
@@ -245,6 +250,7 @@ class LocalProxyServer(private val context: Context) {
       prefix = prefix,
       id = id,
       startedAt = startedAt,
+      clientAttribution = clientAttribution,
       hostnameSource = hostnameSource,
       hostnameConfidence = hostnameConfidence,
       sniHostname = sniHostname,
@@ -265,6 +271,7 @@ class LocalProxyServer(private val context: Context) {
           id = id,
           startedAt = startedAt,
           reasonCode = "mitm_fail_open",
+          clientAttribution = clientAttribution,
           hostnameSource = hostnameSource,
           hostnameConfidence = hostnameConfidence,
           sniHostname = sniHostname,
@@ -284,6 +291,7 @@ class LocalProxyServer(private val context: Context) {
           connectPort = port,
           status = 502,
           reasonCode = "mitm_handshake_failed",
+          clientAttribution = clientAttribution,
           hostnameSource = hostnameSource,
           hostnameConfidence = hostnameConfidence,
           sniHostname = sniHostname,
@@ -304,6 +312,7 @@ class LocalProxyServer(private val context: Context) {
           connectPort = port,
           status = 502,
           reasonCode = "mitm_error",
+          clientAttribution = clientAttribution,
           hostnameSource = hostnameSource,
           hostnameConfidence = hostnameConfidence,
           sniHostname = sniHostname,
@@ -331,6 +340,7 @@ class LocalProxyServer(private val context: Context) {
     prefix: ByteArray,
     id: String,
     startedAt: Long,
+    clientAttribution: ClientAttribution?,
     hostnameSource: String,
     hostnameConfidence: String,
     sniHostname: String?,
@@ -366,6 +376,9 @@ class LocalProxyServer(private val context: Context) {
 
       val requestData = HttpIo.readHttpMessage(tlsSocket)
       var parsed = parseHttpRequest(requestData)
+      val stripped = ClientAttributionHeaders.stripAndExtract(parsed.headers)
+      parsed = parsed.copy(headers = stripped.first)
+      val effectiveClientAttribution = stripped.second ?: clientAttribution
       if (!isSupportedMethod(parsed.method)) {
         throw IllegalStateException("Unsupported HTTPS request method/protocol: ${parsed.method}")
       }
@@ -424,7 +437,7 @@ class LocalProxyServer(private val context: Context) {
             "tlsClientVersion" to tlsMeta?.clientVersion,
             "tlsAlpnProtocols" to if (tlsMeta?.alpnProtocols?.isNotEmpty() == true) tlsMeta.alpnProtocols else null,
             "tlsSniPresent" to (tlsMeta?.sniPresent ?: !sniHostname.isNullOrBlank()),
-          ),
+          ) + ClientAttributionHeaders.asCaptureFields(effectiveClientAttribution),
         )
         return MitmOutcome.Success
       }
@@ -493,7 +506,7 @@ class LocalProxyServer(private val context: Context) {
           "tlsClientVersion" to tlsMeta?.clientVersion,
           "tlsAlpnProtocols" to if (tlsMeta?.alpnProtocols?.isNotEmpty() == true) tlsMeta.alpnProtocols else null,
           "tlsSniPresent" to (tlsMeta?.sniPresent ?: !sniHostname.isNullOrBlank()),
-        ),
+        ) + ClientAttributionHeaders.asCaptureFields(effectiveClientAttribution),
       )
       MitmOutcome.Success
     } catch (e: Exception) {
@@ -522,6 +535,7 @@ class LocalProxyServer(private val context: Context) {
     id: String,
     startedAt: Long,
     reasonCode: String,
+    clientAttribution: ClientAttribution?,
     hostnameSource: String,
     hostnameConfidence: String,
     sniHostname: String?,
@@ -544,6 +558,7 @@ class LocalProxyServer(private val context: Context) {
         connectPort = port,
         status = 200,
         reasonCode = reasonCode,
+        clientAttribution = clientAttribution,
         hostnameSource = hostnameSource,
         hostnameConfidence = hostnameConfidence,
         sniHostname = sniHostname,
@@ -561,6 +576,7 @@ class LocalProxyServer(private val context: Context) {
         connectPort = port,
         status = 502,
         reasonCode = "upstream_connect_failed",
+        clientAttribution = clientAttribution,
         hostnameSource = hostnameSource,
         hostnameConfidence = hostnameConfidence,
         sniHostname = sniHostname,
@@ -580,6 +596,7 @@ class LocalProxyServer(private val context: Context) {
     connectPort: Int,
     status: Int,
     reasonCode: String,
+    clientAttribution: ClientAttribution?,
     hostnameSource: String,
     hostnameConfidence: String,
     sniHostname: String?,
@@ -624,7 +641,7 @@ class LocalProxyServer(private val context: Context) {
         "tlsClientVersion" to tlsMeta?.clientVersion,
         "tlsAlpnProtocols" to if (tlsMeta?.alpnProtocols?.isNotEmpty() == true) tlsMeta.alpnProtocols else null,
         "tlsSniPresent" to (tlsMeta?.sniPresent ?: !sniHostname.isNullOrBlank()),
-      ),
+      ) + ClientAttributionHeaders.asCaptureFields(clientAttribution),
     )
   }
 
@@ -637,6 +654,7 @@ class LocalProxyServer(private val context: Context) {
     path: String,
     query: String,
     headers: Map<String, String>,
+    clientAttribution: ClientAttribution?,
     requestBody: ByteArray,
     client: Socket,
   ): Int {
@@ -691,7 +709,7 @@ class LocalProxyServer(private val context: Context) {
           "captureMode" to "http",
           "httpPayloadAvailable" to true,
           "captureSummary" to "Response overridden (full mock); upstream not contacted.",
-        ),
+        ) + ClientAttributionHeaders.asCaptureFields(clientAttribution),
       )
       return responseRule.status
     }
@@ -796,7 +814,7 @@ class LocalProxyServer(private val context: Context) {
             } else {
               "Plain HTTP capture; full request/response payload available."
             },
-          ),
+          ) + ClientAttributionHeaders.asCaptureFields(clientAttribution),
         )
         code
       } finally {

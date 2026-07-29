@@ -1,5 +1,10 @@
 import { View } from 'react-native';
 
+import {
+  clientAttributionKindOfEntry,
+  clientAttributionLabelOfEntry,
+  clientNameOfEntry,
+} from '@/entities/traffic/client-name';
 import { grpcBadgeLabel, grpcVariant, parseGrpcPath } from '@/entities/traffic/grpc';
 import {
   captureModeLabel,
@@ -25,11 +30,17 @@ export function OverviewTab({ entry }: { entry: TrafficEntry }) {
   const decryptTitle = decryptHelpTitle(entry);
   const variant = grpcVariant(entry);
   const grpcPath = variant ? parseGrpcPath(entry.path) : null;
+  const clientKind = clientAttributionKindOfEntry(entry);
+  const clientLabel = clientNameOfEntry(entry);
 
   return (
     <View className="gap-4">
       <OverviewOverrideActions entry={entry} />
       <MetaRow label="URL" value={entryUrl(entry)} mono />
+      <MetaRow label="Initiator" value={clientLabel} />
+      <MetaRow label="Attribution" value={clientAttributionLabelOfEntry(entry)} />
+      {entry.clientPackage ? <MetaRow label="Package" value={entry.clientPackage} mono /> : null}
+      {entry.clientUid != null ? <MetaRow label="UID" value={String(entry.clientUid)} /> : null}
       <MetaRow label="Request path" value={requestPath(entry)} mono />
       {grpcPath ? <MetaRow label="gRPC" value={grpcPath.shortLabel} mono /> : null}
       {variant ? <MetaRow label="RPC transport" value={grpcBadgeLabel(variant)} /> : null}
@@ -92,6 +103,15 @@ export function OverviewTab({ entry }: { entry: TrafficEntry }) {
       ) : null}
       {entry.tlsSniPresent != null ? (
         <MetaRow label="SNI extension" value={entry.tlsSniPresent ? 'present' : 'absent'} />
+      ) : null}
+      {clientKind === 'heuristic' ? (
+        <View className="border-border bg-sky-500/10 gap-1 rounded-md border p-3">
+          <Text className="font-medium text-sky-700 dark:text-sky-300">Heuristic attribution</Text>
+          <Text variant="muted">
+            This label is inferred from request headers such as `User-Agent`, not from the exact
+            source app identity.
+          </Text>
+        </View>
       ) : null}
     </View>
   );

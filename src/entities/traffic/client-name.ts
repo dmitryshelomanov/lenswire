@@ -1,4 +1,4 @@
-import type { HeaderMap, TrafficEntry } from './types';
+import type { ClientAttributionKind, HeaderMap, TrafficEntry } from './types';
 
 function headerValue(headers: HeaderMap | undefined, wantedLower: string): string | null {
   if (!headers) return null;
@@ -64,11 +64,34 @@ function clientNameFromUserAgent(ua: string): string {
 }
 
 export function clientNameOfEntry(entry: TrafficEntry): string {
+  const exactLabel = entry.clientLabel?.trim();
+  if (exactLabel) return exactLabel;
+  return heuristicClientNameOfEntry(entry);
+}
+
+export function heuristicClientNameOfEntry(entry: TrafficEntry): string {
   const ua = userAgentOf(entry.requestHeaders);
   if (!ua) {
     return hasAnySecFetch(entry.requestHeaders) ? 'Browser' : 'Unknown';
   }
   return clientNameFromUserAgent(ua);
+}
+
+export function clientAttributionKindOfEntry(entry: TrafficEntry): ClientAttributionKind {
+  const raw = entry.clientAttributionKind;
+  if (raw === 'exact' || raw === 'heuristic' || raw === 'unknown') {
+    return raw;
+  }
+  if (entry.clientLabel?.trim()) return 'exact';
+  const heuristic = heuristicClientNameOfEntry(entry);
+  return heuristic === 'Unknown' ? 'unknown' : 'heuristic';
+}
+
+export function clientAttributionLabelOfEntry(entry: TrafficEntry): string {
+  const kind = clientAttributionKindOfEntry(entry);
+  if (kind === 'exact') return 'Exact app';
+  if (kind === 'heuristic') return 'Heuristic client';
+  return 'Unknown client';
 }
 
 // Exported for unit tests.

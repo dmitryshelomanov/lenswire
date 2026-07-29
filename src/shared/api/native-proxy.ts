@@ -112,6 +112,15 @@ function mapNativeCapture(raw: Record<string, unknown>): TrafficEntry {
     responseBody: asBody(raw.responseBody),
     timing: asTiming(raw.timing),
     overrideApplied: asOverrideApplied(raw.overrideApplied),
+    clientLabel: raw.clientLabel == null || raw.clientLabel === '' ? null : String(raw.clientLabel),
+    clientPackage:
+      raw.clientPackage == null || raw.clientPackage === '' ? null : String(raw.clientPackage),
+    clientUid:
+      raw.clientUid == null || Number.isNaN(Number(raw.clientUid)) ? null : Number(raw.clientUid),
+    clientAttributionKind:
+      raw.clientAttributionKind == null || raw.clientAttributionKind === ''
+        ? null
+        : String(raw.clientAttributionKind),
     reasonCode: raw.reasonCode != null ? String(raw.reasonCode) : undefined,
     hostnameSource: raw.hostnameSource != null ? String(raw.hostnameSource) : undefined,
     hostnameConfidence: raw.hostnameConfidence != null ? String(raw.hostnameConfidence) : undefined,

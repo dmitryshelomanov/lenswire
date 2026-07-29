@@ -2,7 +2,11 @@ import { describe, expect, it } from 'vitest';
 
 import type { TrafficEntry, TrafficBody } from './types';
 
-import { clientNameFromUserAgent, clientNameOfEntry } from './client-name';
+import {
+  clientAttributionKindOfEntry,
+  clientNameFromUserAgent,
+  clientNameOfEntry,
+} from './client-name';
 
 function textBody(text: string): TrafficBody {
   return { kind: 'text', text, size: text.length };
@@ -66,6 +70,17 @@ describe('client-name heuristics', () => {
 });
 
 describe('clientNameOfEntry()', () => {
+  it('prefers exact client label over heuristic UA', () => {
+    const entry = baseEntry({
+      clientLabel: 'Lenswire',
+      clientPackage: 'com.lenswire.app',
+      clientUid: 12345,
+      clientAttributionKind: 'exact',
+      requestHeaders: { 'user-agent': 'okhttp/4.12.0' },
+    });
+    expect(clientNameOfEntry(entry)).toBe('Lenswire');
+  });
+
   it('returns Browser when UA missing but sec-fetch-* headers present', () => {
     const entry = baseEntry({
       requestHeaders: { 'sec-fetch-dest': 'document' },
@@ -78,6 +93,30 @@ describe('clientNameOfEntry()', () => {
       requestHeaders: {},
     });
     expect(clientNameOfEntry(entry)).toBe('Unknown');
+  });
+});
+
+describe('clientAttributionKindOfEntry()', () => {
+  it('returns exact when native exact attribution exists', () => {
+    const entry = baseEntry({
+      clientLabel: 'Lenswire',
+      clientAttributionKind: 'exact',
+    });
+    expect(clientAttributionKindOfEntry(entry)).toBe('exact');
+  });
+
+  it('returns heuristic when the client name comes from headers', () => {
+    const entry = baseEntry({
+      requestHeaders: { 'user-agent': 'okhttp/4.12.0' },
+    });
+    expect(clientAttributionKindOfEntry(entry)).toBe('heuristic');
+  });
+
+  it('returns unknown when neither exact attribution nor heuristics exist', () => {
+    const entry = baseEntry({
+      requestHeaders: {},
+    });
+    expect(clientAttributionKindOfEntry(entry)).toBe('unknown');
   });
 });
 
