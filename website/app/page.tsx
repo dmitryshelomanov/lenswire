@@ -5,7 +5,8 @@ import { SiteFooter } from '@/components/SiteFooter';
 import { SiteHeader } from '@/components/SiteHeader';
 import { Spotlight } from '@/components/Spotlight';
 import { withBasePath } from '@/lib/basePath';
-import { comparison, faqs, features, screens, spotlights } from '@/lib/content';
+import { comparison, faqs, features, howTeaser, screens, spotlights } from '@/lib/content';
+import Link from 'next/link';
 
 export default function HomePage() {
   return (
@@ -108,6 +109,22 @@ export default function HomePage() {
                 </li>
               ))}
             </ul>
+          </div>
+        </section>
+
+        {/* How teaser */}
+        <section className="mx-auto max-w-5xl px-5 py-20 sm:py-28">
+          <div className="mx-auto max-w-3xl text-center">
+            <h2 className="font-display text-5xl tracking-tight sm:text-6xl">{howTeaser.title}</h2>
+            <p className="mt-6 text-xl leading-relaxed text-muted sm:text-2xl">{howTeaser.lead}</p>
+            <div className="mt-9">
+              <Link
+                href="/how/"
+                className="inline-flex h-12 items-center rounded-full bg-ink px-6 text-base font-medium text-white no-underline transition hover:bg-navy"
+              >
+                {howTeaser.cta}
+              </Link>
+            </div>
           </div>
         </section>
 

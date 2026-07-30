@@ -133,3 +133,63 @@ export const faqs = [
     a: 'No. Capture stays on your device. There is no Lenswire cloud proxy.',
   },
 ] as const;
+
+export const howTeaser = {
+  title: 'MITM when we can, tunnel when we can’t',
+  lead: 'Local VPN feeds an on-device proxy. If ClientHello ALPN allows HTTP/1.1 — including after h2→h1.1 — we decrypt. Pure h2/h3 goes straight to tunnel; WebSockets relay without inspecting frames.',
+  cta: 'See how it works',
+} as const;
+
+export const howItWorks = {
+  title: 'How the pipe works',
+  lead: 'Apps hit a local VPN. Lenswire peeks ClientHello ALPN: offer HTTP/1.1 and we MITM (force that ALPN); only h2/h3 and other opaque traffic stay a transparent tunnel.',
+  platformNote: 'iOS Packet Tunnel · Android VpnService → tun2socks → SOCKS',
+  mitm: {
+    title: 'We MITM',
+    lead: 'Open the bytes — decrypt, inspect, override.',
+    items: [
+      {
+        label: 'HTTP/1.1',
+        body: 'ClientHello includes http/1.1 (often with h2). We force ALPN http/1.1, then decrypt request and response — JSON, images, fonts, and more — with keep-alive on the TLS socket. Overrides land here.',
+        code: 'decrypted',
+      },
+      {
+        label: 'WebSocket',
+        body: 'After MITM TLS, Upgrade is detected and relayed end-to-end. Frames are not inspected; the host is not added to session bypass.',
+        code: 'websocket_relay',
+      },
+    ],
+  },
+  tunnel: {
+    title: 'We tunnel',
+    lead: 'Keep it sealed — encrypted bytes pass through, no payload in the UI.',
+    items: [
+      {
+        label: 'ALPN without HTTP/1.1',
+        body: 'ClientHello only offers h2 or h3. We never start MITM — straight tunnel. The app shows HTTP/2 or HTTP/3 with an h2-only / h3-only badge, not a decrypted call.',
+        code: 'alpn_no_http11',
+      },
+      {
+        label: 'Session bypass',
+        body: 'Trust fail, or HTTP/2/binary after MITM (client ignored ALPN and sent PRI) → that connect closes and the host stays tunnel-only until you stop VPN. The app shows which cause triggered bypass.',
+        code: 'mitm_bypassed',
+      },
+      {
+        label: 'No request after handshake',
+        body: 'Read timeout with no HTTP → close and bypass so retries tunnel. Client closed with zero bytes (EOF) → close without bypass, so CDN speculative connects can still be MITM’d next time.',
+        code: 'mitm_no_request',
+      },
+      {
+        label: 'Decrypt off / no CA / no SNI',
+        body: 'MITM impossible up front. Still captured — as a tunnel, not a decrypted call.',
+        code: 'passthrough',
+      },
+    ],
+  },
+  protocolsIntro: 'Same pipe. Two exits.',
+  protocolsHeading: 'Open the payload — or keep it sealed',
+  protocolsLead:
+    'Decrypted calls show as HTTP/1.1. Pure h2/h3-only tunnels get HTTP/2 or HTTP/3 flags. A successful ALPN downgrade is not labeled as HTTP/2 — you see the inspectable HTTP/1.1 payload.',
+  ctaTitle: 'Free and open source',
+  ctaBody: 'MIT licensed. Capture and decrypt stay on your device.',
+} as const;
