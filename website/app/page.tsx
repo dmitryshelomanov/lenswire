@@ -11,40 +11,40 @@ export default function HomePage() {
         {/* Hero — brand + phone-sized video side-by-side on desktop */}
         <section className="relative overflow-hidden border-b border-line bg-gradient-to-br from-[#0B3D91] via-[#0077B6] to-[#48CAE4]">
           <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,rgba(255,255,255,0.22),transparent_55%)]" />
-          <div className="relative mx-auto grid max-w-6xl items-center gap-10 px-5 py-16 lg:grid-cols-2 lg:gap-16 lg:py-20">
+          <div className="relative mx-auto grid max-w-6xl items-center gap-10 px-5 py-20 lg:grid-cols-2 lg:gap-16 lg:py-28">
             <div className="text-center lg:text-left">
               <img
                 src={withBasePath('/favicon.png')}
                 alt=""
-                width={56}
-                height={56}
+                width={64}
+                height={64}
                 className="mx-auto rounded-2xl shadow-lg shadow-black/20 ring-1 ring-white/30 lg:mx-0"
               />
-              <h1 className="mt-6 font-display text-[clamp(3.75rem,12vw,6rem)] font-medium leading-none tracking-tight text-white">
+              <h1 className="mt-7 font-display text-[clamp(4.25rem,13vw,7rem)] font-medium leading-none tracking-tight text-white">
                 Lenswire
               </h1>
-              <p className="mt-5 font-display text-2xl leading-snug text-white/90 sm:text-3xl">
+              <p className="mt-6 font-display text-3xl leading-snug text-white/90 sm:text-4xl">
                 Capture HTTP(S) traffic on your phone
               </p>
-              <p className="mx-auto mt-4 max-w-md text-[0.98rem] leading-relaxed text-white/75 sm:text-base lg:mx-0">
-                Inspect, decrypt, and override network requests from your iOS and Android apps — local
-                VPN MITM, no desktop required.
+              <p className="mx-auto mt-5 max-w-lg text-lg leading-relaxed text-white/75 sm:text-xl lg:mx-0">
+                Inspect, decrypt, and override network requests from your iOS and Android apps —
+                local VPN MITM, no desktop required.
               </p>
-              <div className="mt-8 flex flex-wrap justify-center gap-3 lg:justify-start">
+              <div className="mt-9 flex flex-wrap justify-center gap-3 lg:justify-start">
                 <a
                   href="https://github.com/dmitryshelomanov/lenswire"
-                  className="inline-flex h-11 items-center rounded-full bg-white px-5 text-sm font-medium text-ink no-underline transition hover:bg-white/90"
+                  className="inline-flex h-12 items-center rounded-full bg-white px-6 text-base font-medium text-ink no-underline transition hover:bg-white/90"
                 >
                   View on GitHub
                 </a>
                 <a
                   href="#screens"
-                  className="inline-flex h-11 items-center rounded-full border border-white/40 bg-white/10 px-5 text-sm font-medium text-white no-underline backdrop-blur transition hover:bg-white/20"
+                  className="inline-flex h-12 items-center rounded-full border border-white/40 bg-white/10 px-6 text-base font-medium text-white no-underline backdrop-blur transition hover:bg-white/20"
                 >
                   See screens
                 </a>
               </div>
-              <p className="mt-5 text-xs text-white/60">iOS · Android · on-device · MIT</p>
+              <p className="mt-5 text-sm text-white/60">iOS · Android · on-device · MIT</p>
             </div>
 
             <div className="flex justify-center lg:justify-end">
@@ -67,12 +67,12 @@ export default function HomePage() {
         </section>
 
         {/* What it is */}
-        <section className="mx-auto max-w-5xl px-5 py-16 sm:py-20">
-          <div className="mx-auto max-w-2xl text-center">
-            <h2 className="font-display text-4xl tracking-tight sm:text-5xl">
+        <section className="mx-auto max-w-5xl px-5 py-20 sm:py-28">
+          <div className="mx-auto max-w-3xl text-center">
+            <h2 className="font-display text-5xl tracking-tight sm:text-6xl">
               A clear view of every request
             </h2>
-            <p className="mt-4 text-lg leading-relaxed text-muted">
+            <p className="mt-6 text-xl leading-relaxed text-muted sm:text-2xl">
               Domain overviews, decrypted payloads, filters, overrides, and HAR export — readable on
               the phone.
             </p>
@@ -81,26 +81,26 @@ export default function HomePage() {
 
         {/* Features */}
         <section id="features" className="border-y border-line bg-wash">
-          <div className="mx-auto max-w-5xl px-5 py-16 sm:py-20">
-            <div className="mx-auto max-w-2xl text-center">
-              <h2 className="font-display text-4xl tracking-tight sm:text-5xl">
-                What you can do
-              </h2>
-              <p className="mt-3 text-muted">
+          <div className="mx-auto max-w-5xl px-5 py-20 sm:py-28">
+            <div className="mx-auto max-w-3xl text-center">
+              <h2 className="font-display text-5xl tracking-tight sm:text-6xl">What you can do</h2>
+              <p className="mt-5 text-xl text-muted">
                 Capture, inspect, mock, and share HTTP(S) from your device.
               </p>
             </div>
-            <ul className="mt-12 grid gap-5 sm:grid-cols-2">
+            <ul className="mt-14 grid gap-5 sm:grid-cols-2">
               {features.map((feature, i) => (
                 <li
                   key={feature.title}
-                  className="rounded-2xl bg-paper p-7 shadow-[0_8px_30px_-12px_rgba(11,61,145,0.18)] ring-1 ring-black/[0.04] sm:p-8"
+                  className="rounded-2xl bg-paper p-8 shadow-[0_8px_30px_-12px_rgba(11,61,145,0.18)] ring-1 ring-black/[0.04] sm:p-9"
                 >
                   <FeatureIcon index={i} />
-                  <h3 className="mt-4 text-lg font-semibold tracking-tight text-ink">
+                  <h3 className="mt-5 text-xl font-semibold tracking-tight text-ink">
                     {feature.title}
                   </h3>
-                  <p className="mt-2 text-[0.95rem] leading-relaxed text-muted">{feature.body}</p>
+                  <p className="mt-3 text-base leading-relaxed text-muted sm:text-lg">
+                    {feature.body}
+                  </p>
                 </li>
               ))}
             </ul>
@@ -108,29 +108,29 @@ export default function HomePage() {
         </section>
 
         {/* Spotlight rows */}
-        <section className="mx-auto max-w-5xl space-y-20 px-5 py-16 sm:space-y-28 sm:py-24">
+        <section className="mx-auto max-w-5xl space-y-24 px-5 py-20 sm:space-y-32 sm:py-28">
           {spotlights.map((item) => (
             <Spotlight key={item.title} {...item} />
           ))}
         </section>
 
         {/* Screens — horizontal scroll */}
-        <section id="screens" className="border-t border-line bg-wash py-16 sm:py-20">
+        <section id="screens" className="border-t border-line bg-wash py-20 sm:py-28">
           <div className="mx-auto max-w-5xl px-5">
-            <h2 className="font-display text-4xl tracking-tight sm:text-5xl">In the app</h2>
-            <p className="mt-3 max-w-lg text-muted">
+            <h2 className="font-display text-5xl tracking-tight sm:text-6xl">In the app</h2>
+            <p className="mt-5 max-w-xl text-xl text-muted">
               Traffic list, domain drill-down, request/response detail, and overrides.
             </p>
           </div>
-          <div className="mt-10 overflow-x-auto overscroll-x-contain scroll-smooth pb-2 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          <div className="mt-12 overflow-x-auto overscroll-x-contain scroll-smooth pb-2 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
             <ul className="flex w-max snap-x snap-mandatory gap-6 px-5 sm:gap-8 sm:px-[max(1.25rem,calc((100vw-64rem)/2+1.25rem))]">
               {screens.map((screen) => (
                 <li key={screen.src} className="w-[15.5rem] shrink-0 snap-start sm:w-[17rem]">
                   <figure>
                     <DeviceFrame src={screen.src} alt={screen.alt} />
-                    <figcaption className="mt-4">
-                      <p className="text-base font-medium tracking-tight text-ink">{screen.title}</p>
-                      <p className="mt-1 text-sm leading-relaxed text-muted">{screen.body}</p>
+                    <figcaption className="mt-5">
+                      <p className="text-lg font-medium tracking-tight text-ink">{screen.title}</p>
+                      <p className="mt-1.5 text-base leading-relaxed text-muted">{screen.body}</p>
                     </figcaption>
                   </figure>
                 </li>
@@ -140,41 +140,39 @@ export default function HomePage() {
         </section>
 
         {/* FAQ */}
-        <section id="faq" className="mx-auto max-w-5xl px-5 py-16 sm:py-20">
-          <h2 className="font-display text-4xl tracking-tight sm:text-5xl">FAQ</h2>
-          <p className="mt-3 text-muted">Common questions.</p>
-          <dl className="mt-10 space-y-6">
+        <section id="faq" className="mx-auto max-w-5xl px-5 py-20 sm:py-28">
+          <h2 className="font-display text-5xl tracking-tight sm:text-6xl">FAQ</h2>
+          <p className="mt-5 text-xl text-muted">Common questions.</p>
+          <dl className="mt-12 space-y-7">
             {faqs.map((item) => (
-              <div key={item.q} className="border-t border-line pt-6">
-                <dt className="text-lg font-medium tracking-tight">{item.q}</dt>
-                <dd className="mt-2 max-w-2xl text-[0.98rem] leading-relaxed text-muted">
-                  {item.a}
-                </dd>
+              <div key={item.q} className="border-t border-line pt-7">
+                <dt className="text-xl font-medium tracking-tight">{item.q}</dt>
+                <dd className="mt-3 max-w-2xl text-lg leading-relaxed text-muted">{item.a}</dd>
               </div>
             ))}
           </dl>
         </section>
 
         {/* CTA — free lure */}
-        <section className="mx-auto max-w-5xl px-5 pb-16 sm:pb-20">
-          <div className="rounded-3xl bg-gradient-to-br from-[#e8f4fb] via-[#f0f7fb] to-white px-6 py-10 ring-1 ring-line sm:px-12 sm:py-14">
+        <section className="mx-auto max-w-5xl px-5 pb-20 sm:pb-28">
+          <div className="rounded-3xl bg-gradient-to-br from-[#e8f4fb] via-[#f0f7fb] to-white px-7 py-12 ring-1 ring-line sm:px-14 sm:py-16">
             <img
               src={withBasePath('/favicon.png')}
               alt=""
-              width={48}
-              height={48}
+              width={56}
+              height={56}
               className="rounded-xl shadow-sm ring-1 ring-black/5"
             />
-            <h2 className="mt-5 font-display text-3xl tracking-tight sm:text-4xl">
+            <h2 className="mt-6 font-display text-4xl tracking-tight sm:text-5xl">
               Free and open source
             </h2>
-            <p className="mt-3 max-w-xl text-[0.98rem] leading-relaxed text-muted sm:text-base">
+            <p className="mt-4 max-w-xl text-lg leading-relaxed text-muted sm:text-xl">
               MIT licensed, no account, no cloud. Capture and decrypt stay on your device.
             </p>
-            <div className="mt-7">
+            <div className="mt-8">
               <a
                 href="https://github.com/dmitryshelomanov/lenswire"
-                className="inline-flex h-11 items-center rounded-full bg-ink px-5 text-sm font-medium text-white no-underline transition hover:bg-navy"
+                className="inline-flex h-12 items-center rounded-full bg-ink px-6 text-base font-medium text-white no-underline transition hover:bg-navy"
               >
                 View on GitHub
               </a>
@@ -189,8 +187,8 @@ export default function HomePage() {
 
 function FeatureIcon({ index }: { index: number }) {
   const common = {
-    width: 28,
-    height: 28,
+    width: 32,
+    height: 32,
     viewBox: '0 0 24 24',
     fill: 'none',
     stroke: 'currentColor',
@@ -295,9 +293,9 @@ function Spotlight({
       className={`grid items-center gap-10 lg:grid-cols-2 lg:gap-16 ${reverse ? 'lg:[&>*:first-child]:order-2' : ''}`}
     >
       <div>
-        <p className="text-sm font-medium tracking-wide text-navy">{eyebrow}</p>
-        <h3 className="mt-2 font-display text-3xl tracking-tight sm:text-[2.1rem]">{title}</h3>
-        <p className="mt-4 text-base leading-relaxed text-muted sm:text-lg">{body}</p>
+        <p className="text-base font-medium tracking-wide text-navy">{eyebrow}</p>
+        <h3 className="mt-3 font-display text-4xl tracking-tight sm:text-5xl">{title}</h3>
+        <p className="mt-5 text-lg leading-relaxed text-muted sm:text-xl">{body}</p>
       </div>
       <div
         className={`mx-auto flex w-full max-w-md justify-center rounded-3xl bg-gradient-to-br ${wash} p-8 sm:p-10`}

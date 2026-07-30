@@ -23,6 +23,8 @@ html {
 body {
   background-color: var(--color-paper);
   color: var(--color-ink);
+  font-size: 1.0625rem;
+  line-height: 1.65;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
