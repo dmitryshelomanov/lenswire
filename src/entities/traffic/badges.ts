@@ -1,6 +1,12 @@
-import type { HttpMethod } from '@/entities/traffic/types';
+import { contentTypeMime } from '@/entities/traffic/headers';
+import type { HttpMethod, TrafficEntry } from '@/entities/traffic/types';
 
 type BadgeVariant = 'default' | 'outline' | 'success' | 'warning' | 'danger' | 'info';
+
+export type HttpVersionLabel = 'HTTP/1.1' | 'HTTP/2';
+
+const HTTP2_SNIFF_RE = /(?:^|[\s;])guess=http2(?:[\s;]|$)/i;
+const HTTP2_PRI_RE = /(?:^|[\s;])method=PRI(?:[\s;]|$)/i;
 
 export function methodBadgeVariant(method: HttpMethod): BadgeVariant {
   switch (method) {
@@ -51,4 +57,24 @@ export function statusBadgeVariant(status: number): BadgeVariant {
   if (status >= 400) return 'warning';
   if (status >= 300) return 'info';
   return 'success';
+}
+
+/** True when request or response Content-Type MIME contains `+protobuf`. */
+export function hasProtobufContentType(entry: TrafficEntry): boolean {
+  const req = contentTypeMime(entry.requestHeaders);
+  const res = contentTypeMime(entry.responseHeaders);
+  return req.includes('+protobuf') || res.includes('+protobuf');
+}
+
+/**
+ * Wire HTTP version when known: decrypted payload → HTTP/1.1;
+ * tunnel with MITM sniff `guess=http2` / `method=PRI` → HTTP/2; otherwise unknown.
+ */
+export function httpVersionLabel(entry: TrafficEntry): HttpVersionLabel | null {
+  if (entry.httpPayloadAvailable === true) return 'HTTP/1.1';
+  if (entry.captureMode !== 'tunnel') return null;
+  const summary = entry.captureSummary;
+  if (!summary) return null;
+  if (HTTP2_SNIFF_RE.test(summary) || HTTP2_PRI_RE.test(summary)) return 'HTTP/2';
+  return null;
 }

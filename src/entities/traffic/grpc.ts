@@ -1,4 +1,5 @@
-import type { HeaderMap, TrafficEntry } from './types';
+import type { TrafficEntry } from './types';
+import { contentTypeMime, headerValue } from './headers';
 
 export type GrpcVariant = 'grpc-web' | 'grpc';
 
@@ -8,18 +9,6 @@ export type GrpcPathParts = {
   method: string;
   shortLabel: string;
 };
-
-function headerValue(headers: HeaderMap, name: string): string {
-  const lower = name.toLowerCase();
-  for (const [key, value] of Object.entries(headers)) {
-    if (key.toLowerCase() === lower) return value;
-  }
-  return '';
-}
-
-function contentTypeOf(headers: HeaderMap): string {
-  return headerValue(headers, 'content-type').split(';')[0]?.trim().toLowerCase() || '';
-}
 
 function mimeLooksGrpc(mime: string): boolean {
   if (!mime) return false;
@@ -55,8 +44,8 @@ export function parseGrpcPath(path: string): GrpcPathParts | null {
 }
 
 export function grpcVariant(entry: TrafficEntry): GrpcVariant | null {
-  const reqCt = contentTypeOf(entry.requestHeaders);
-  const resCt = contentTypeOf(entry.responseHeaders);
+  const reqCt = contentTypeMime(entry.requestHeaders);
+  const resCt = contentTypeMime(entry.responseHeaders);
   const xGrpcWeb =
     headerValue(entry.requestHeaders, 'x-grpc-web') ||
     headerValue(entry.responseHeaders, 'x-grpc-web');

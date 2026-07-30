@@ -2,7 +2,8 @@ import { router } from 'expo-router';
 import { Pressable, View } from 'react-native';
 
 import { methodBadgeVariant, reasonLabel, statusBadgeVariant } from '@/entities/traffic/badges';
-import { grpcBadgeLabel, grpcVariant, parseGrpcPath } from '@/entities/traffic/grpc';
+import { getEntryBadgeMeta } from '@/entities/traffic/entry-badges';
+import { grpcBadgeLabel } from '@/entities/traffic/grpc';
 import {
   captureModeLabel,
   formatBytes,
@@ -25,24 +26,27 @@ export function TrafficRow({ entry, collapsedCount = 1 }: Props) {
   });
   const reason = reasonLabel(entry.reasonCode);
   const mode = captureModeLabel(entry.captureMode);
-  const variant = grpcVariant(entry);
-  const grpcPath = variant ? parseGrpcPath(entry.path) : null;
+  const { httpVersion, grpcVariant, protobuf, grpcPath } = getEntryBadgeMeta(entry);
 
   return (
     <Pressable
       className="border-border active:bg-accent/40 border-b px-4 py-3 sm:px-6"
       onPress={() => router.push(`/request/${entry.id}`)}
     >
-      <View className="flex-row items-center gap-2">
-        <Badge label={entry.method} variant={methodBadgeVariant(entry.method)} />
-        <Badge label={String(entry.status)} variant={statusBadgeVariant(entry.status)} />
-        <Badge label={mode} variant="default" />
-        {variant ? <Badge label={grpcBadgeLabel(variant)} variant="info" /> : null}
-        {entry.overrideApplied === 'response' ? <Badge label="MOCK" variant="warning" /> : null}
-        {entry.overrideApplied === 'request' ? <Badge label="REQ↓" variant="info" /> : null}
-        {reason ? <Badge label={reason} variant="default" /> : null}
-        {collapsedCount > 1 ? <Badge label={`x${collapsedCount}`} variant="outline" /> : null}
-        <Text variant="muted" className="ml-auto font-mono text-xs">
+      <View className="flex-row items-start gap-2">
+        <View className="min-w-0 flex-1 flex-row flex-wrap items-center gap-2">
+          <Badge label={entry.method} variant={methodBadgeVariant(entry.method)} />
+          <Badge label={String(entry.status)} variant={statusBadgeVariant(entry.status)} />
+          <Badge label={mode} variant="default" />
+          {httpVersion ? <Badge label={httpVersion} variant="outline" /> : null}
+          {grpcVariant ? <Badge label={grpcBadgeLabel(grpcVariant)} variant="info" /> : null}
+          {protobuf ? <Badge label="+protobuf" variant="info" /> : null}
+          {entry.overrideApplied === 'response' ? <Badge label="MOCK" variant="warning" /> : null}
+          {entry.overrideApplied === 'request' ? <Badge label="REQ↓" variant="info" /> : null}
+          {reason ? <Badge label={reason} variant="default" /> : null}
+          {collapsedCount > 1 ? <Badge label={`x${collapsedCount}`} variant="outline" /> : null}
+        </View>
+        <Text variant="muted" className="font-mono text-xs">
           {time}
         </Text>
       </View>

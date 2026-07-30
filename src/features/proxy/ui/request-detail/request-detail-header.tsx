@@ -4,7 +4,8 @@ import * as React from 'react';
 import { Alert, Share, View } from 'react-native';
 
 import { methodBadgeVariant, statusBadgeVariant } from '@/entities/traffic/badges';
-import { grpcBadgeLabel, grpcVariant, parseGrpcPath } from '@/entities/traffic/grpc';
+import { getEntryBadgeMeta } from '@/entities/traffic/entry-badges';
+import { grpcBadgeLabel } from '@/entities/traffic/grpc';
 import { entryUrl, formatDuration, type TrafficEntry } from '@/entities/traffic/types';
 import { Badge } from '@/shared/ui/badge';
 import { Button } from '@/shared/ui/button';
@@ -20,8 +21,7 @@ export function RequestDetailHeader({ entry }: { entry: TrafficEntry }) {
   const { copied, copy } = useCopiedFeedback();
   const curlOk = canExportCurl(entry);
   const harOk = canExportHar(entry);
-  const variant = grpcVariant(entry);
-  const grpcPath = variant ? parseGrpcPath(entry.path) : null;
+  const { httpVersion, grpcVariant, protobuf, grpcPath } = getEntryBadgeMeta(entry);
 
   const onCopyCurl = React.useCallback(() => {
     if (!curlOk) {
@@ -44,14 +44,18 @@ export function RequestDetailHeader({ entry }: { entry: TrafficEntry }) {
 
   return (
     <View className="border-border border-b px-4 py-3">
-      <View className="flex-row items-center gap-2">
+      <View className="flex-row items-start gap-2">
         <Button variant="ghost" size="icon" onPress={() => router.back()}>
           <Icon as={ArrowLeft} className="text-foreground" size={18} />
         </Button>
-        <Badge label={entry.method} variant={methodBadgeVariant(entry.method)} />
-        <Badge label={String(entry.status)} variant={statusBadgeVariant(entry.status)} />
-        {variant ? <Badge label={grpcBadgeLabel(variant)} variant="info" /> : null}
-        <Text variant="muted" className="ml-auto font-mono text-xs">
+        <View className="min-w-0 flex-1 flex-row flex-wrap items-center gap-2">
+          <Badge label={entry.method} variant={methodBadgeVariant(entry.method)} />
+          <Badge label={String(entry.status)} variant={statusBadgeVariant(entry.status)} />
+          {httpVersion ? <Badge label={httpVersion} variant="outline" /> : null}
+          {grpcVariant ? <Badge label={grpcBadgeLabel(grpcVariant)} variant="info" /> : null}
+          {protobuf ? <Badge label="+protobuf" variant="info" /> : null}
+        </View>
+        <Text variant="muted" className="font-mono text-xs">
           {formatDuration(entry.timing.totalMs)}
         </Text>
       </View>
