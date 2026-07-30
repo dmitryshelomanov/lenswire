@@ -2,35 +2,90 @@
   <img src="./assets/images/splash-icon.png" alt="Lenswire" width="120" />
   <h1>Lenswire</h1>
   <p>
-    <strong>Native MITM inspector</strong> · <strong>iOS Packet Tunnel</strong> · <strong>Android VpnService</strong>
+    <strong>Local HTTP(S) inspector</strong> · <strong>iOS Packet Tunnel</strong> · <strong>Android VpnService</strong> · <strong>MIT</strong>
+  </p>
+  <p>
+    <a href="https://dmitryshelomanov.github.io/lenswire/"><strong>Website</strong></a>
+    ·
+    <a href="https://dmitryshelomanov.github.io/lenswire/privacy/">Privacy</a>
   </p>
 </div>
 
 <br />
 
-<div>
-<p>Lenswire is a native HTTP(S) inspector with a local MITM proxy. It can decrypt HTTPS traffic when Lenswire CA is installed and <code>HTTPS decryption</code> is enabled.</p>
+<table>
+<tr>
+<td width="50%" valign="top" align="center">
+<img src="./docs/images/screenshot-1.png" alt="Lenswire traffic capture" width="260" />
+</td>
+<td width="50%" valign="top" align="center">
+<img src="./docs/images/screenshot-2.png" alt="Lenswire request inspector" width="260" />
+</td>
+</tr>
+</table>
+
+<p>Lenswire is a native HTTP(S) inspector with a local MITM proxy. Decrypt HTTPS when Lenswire CA is installed and <code>HTTPS decryption</code> is enabled.</p>
 <ul>
-<li>HTTPS decryption with Lenswire CA (Generate CA → Install CA + <code>HTTPS decryption</code> toggle)</li>
-<li>Device VPN + local MITM: iOS (Packet Tunnel) and Android (VpnService → tun2socks → SOCKS bridge)</li>
-<li>iOS Simulator dev mode: in-process <code>LocalProxyServer</code> (fast iteration)</li>
-<li>Traffic filters: method/scheme/status/resource type/query + “overridden only” view</li>
-<li>Override rules: request rewrite + response mocks (status, content-type, headers, body)</li>
-<li>Headers editing includes Cookie (any header can be changed; empty value removes it)</li>
-<li>Fail-open MITM + session bypass with clear reasons (“trust?”, “bypassed”, tunnel-only)</li>
-<li>Decrypted request visibility (headers + bodies) and HAR export for captures</li>
-<li><code>sandbox/</code> app: validate User CA trust and run deterministic HTTPS probes</li>
-<li>Scripted trust workflow: <code>sim:trust-ca</code> + <code>android:trust-ca</code></li>
+<li>🔐 HTTPS decryption with Lenswire CA (Generate CA → Install CA + toggle)</li>
+<li>📱 Device VPN + local MITM: iOS (Packet Tunnel) and Android (VpnService)</li>
+<li>🧭 Domain groups, client tags, and filters (method / status / path)</li>
+<li>🧪 Override rules: request rewrite + response mocks</li>
+<li>📋 Copy as cURL, Share HAR, fail-open bypass with clear reasons</li>
+<li>🧰 <code>sandbox/</code> probe app + <code>sim:trust-ca</code> / <code>android:trust-ca</code> scripts</li>
 </ul>
-<div style="display:flex; gap:12px; justify-content:center; align-items:flex-start; margin-top:14px; flex-wrap:wrap;">
-  <img src="./docs/images/lenswire-screenshot-1.png" alt="Lenswire traffic list screenshot" width="320" />
-  <img src="./docs/images/lenswire-screenshot-2.png" alt="Lenswire domains/filter screenshot" width="320" />
-</div>
-</div>
 
 <br />
 
 > Primary focus: decrypt and inspect real device traffic via iOS Packet Tunnel / Android VpnService.
+
+### Links
+
+- **Website:** [dmitryshelomanov.github.io/lenswire](https://dmitryshelomanov.github.io/lenswire/)
+- [Repository](https://github.com/dmitryshelomanov/lenswire)
+- [Issues](https://github.com/dmitryshelomanov/lenswire/issues)
+- [Expo SDK 57 docs](https://docs.expo.dev/versions/v57.0.0/)
+- Privacy policy: [`docs/privacy.md`](docs/privacy.md) · [live page](https://dmitryshelomanov.github.io/lenswire/privacy/)
+- [Store assets map](docs/STORE-ASSETS.md) — what to upload where, regenerate commands
+- EAS project: https://expo.dev/accounts/dshelomanovs-team/projects/lenswire
+
+### Android / Google Play
+
+- [Play Console setup](docs/play-store/PLAY-CONSOLE.md) — AAB upload, keystore, `eas submit`
+- [Store listing copy](docs/play-store/LISTING.md) — name, short/full description, asset paths
+- [Data safety answers](docs/play-store/DATA-SAFETY.md) — Play Console forms & permissions
+- Listing assets: [`docs/play-store/`](docs/play-store/) · phone screenshots: [`docs/store-screenshots/android/framed-*.png`](docs/store-screenshots/android/)
+- iPhone App Store screenshots (ready): [`docs/store-screenshots/*.png`](docs/store-screenshots/)
+
+```bash
+npm run build:android:preview:local   # APK for sideload (preferred)
+npm run build:android:local           # AAB for Play upload (preferred)
+npm run build:android:preview         # cloud APK (slower)
+npm run build:android                 # cloud AAB (slower)
+npm run screenshots:store             # marketing frames 1290×2796
+npm run screenshots:play              # Play graphic + Android framed screenshots
+```
+
+## Store release checklist
+
+| Item                                  | Android / Play                                                                                      | iOS / App Store                                      |
+| ------------------------------------- | --------------------------------------------------------------------------------------------------- | ---------------------------------------------------- |
+| App id / package in config            | Done (`com.lenswire.app`)                                                                           | Done (`com.lenswire.app` + Packet Tunnel extension)  |
+| Icon + splash in binary               | Done                                                                                                | Done                                                 |
+| Privacy policy URL                    | Done ([live](https://dmitryshelomanov.github.io/lenswire/privacy/))                                 | Done (same URL; paste in ASC)                        |
+| Phone listing screenshots             | Done ([`framed-*.png`](docs/store-screenshots/android/) via `screenshots:play`)                     | Done ([`01–06.png`](docs/store-screenshots/))        |
+| Feature graphic / listing icon        | Done ([`play-store/`](docs/play-store/) via `screenshots:play`)                                     | n/a (uses app icon)                                  |
+| Listing copy + compliance docs        | Done ([`LISTING`](docs/play-store/LISTING.md), [`DATA-SAFETY`](docs/play-store/DATA-SAFETY.md))     | Todo (`docs/app-store/` not started)                 |
+| EAS production profile / scripts      | Done (`build:android:local`, upload keystore on EAS)                                                | Todo (no `build:ios` / `submit:ios` yet)             |
+| Store-signed production binary        | Done (AAB via local EAS → `dist/android/lenswire-production-1.0.0.aab`)                             | Todo (`.ipa` via EAS)                                |
+| Real Apple Team ID in `app.json`      | n/a                                                                                                 | Todo (`appleTeamId` is still `YOUR_APPLE_TEAM_ID`)   |
+| Network Extension entitlements        | n/a                                                                                                 | Todo (paid Apple Developer + NE capability approved) |
+| Developer account + store console app | Todo (Play Console create + first AAB upload)                                                       | Todo (Apple Developer + App Store Connect)           |
+| Automated submit credentials          | Todo (Google service account for `eas submit`)                                                      | Todo (App Store Connect API key)                     |
+| Internal test track                   | Todo (Play Internal testing)                                                                        | Todo (TestFlight)                                    |
+| Tablet screenshots                    | Optional                                                                                            | Todo if `supportsTablet` stays true                  |
+| Public production release             | Todo                                                                                                | Todo                                                 |
+
+Full asset map: [`docs/STORE-ASSETS.md`](docs/STORE-ASSETS.md). Android upload steps: [`docs/play-store/PLAY-CONSOLE.md`](docs/play-store/PLAY-CONSOLE.md).
 
 ## Requirements
 
@@ -61,7 +116,7 @@ npm run android
 4. **Start** → allow VPN (device)
 5. Open Safari / apps without pinning — decrypted requests appear with headers and bodies
 
-Toggle **HTTPS decryption** in Settings. Apps with certificate pinning will fail while decryption is on (same as Proxyman).
+Toggle **HTTPS decryption** in Settings. Apps with certificate pinning will fail while decryption is on.
 
 ## iOS Simulator Dev Mode
 
@@ -184,6 +239,11 @@ Key components:
 | ------------------------------------------- | -------------------------------------------------- |
 | `npm run ios` / `android`                   | Build & run                                        |
 | `npm run prebuild:ios` / `prebuild:android` | Regenerate native projects                         |
+| `npm run build:android:preview:local`       | Local EAS preview APK                              |
+| `npm run build:android:local`               | Local EAS production AAB                           |
+| `npm run screenshots:store`                 | Colorful marketing frames + website JPG screenshots |
+| `npm run screenshots:play`                  | Play feature graphic + Android framed screenshots   |
+| `npm run website:dev` / `website:deploy`    | Landing page (GitHub Pages)                        |
 | `npm run sim:trust-ca`                      | Trust app-generated CA in booted iOS Simulator     |
 | `npm run android:trust-ca`                  | Install Lenswire CA into System store (rooted AVD) |
 | `npm run sim:mac-proxy-on/off`              | Mac HTTP(S) proxy helpers                          |

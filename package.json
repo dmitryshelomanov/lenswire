@@ -39,6 +39,17 @@
     "android": "expo run:android",
     "prebuild:ios": "expo prebuild -p ios --clean",
     "prebuild:android": "expo prebuild -p android --clean",
+    "build:android:preview": "npx eas-cli build --platform android --profile preview",
+    "build:android:preview:local": "npx eas-cli build --platform android --profile preview --local",
+    "build:android": "npx eas-cli build --platform android --profile production",
+    "build:android:local": "npx eas-cli build --platform android --profile production --local",
+    "submit:android": "npx eas-cli submit --platform android --profile production",
+    "screenshots:store": "node scripts/generate-store-screenshots.mjs",
+    "screenshots:play": "node scripts/generate-play-store-assets.mjs",
+    "website:dev": "npm run dev --prefix website",
+    "website:build": "npm run build --prefix website",
+    "website:start": "npm run start --prefix website",
+    "website:deploy": "npm run deploy --prefix website",
     "sim:trust-ca": "bash scripts/sim-dev.sh trust-ca",
     "sim:mac-proxy-on": "bash scripts/sim-dev.sh mac-proxy-on",
     "sim:mac-proxy-off": "bash scripts/sim-dev.sh mac-proxy-off",
@@ -50,13 +61,7 @@
     "lint:fix": "expo lint --fix",
     "lint:types": "tsc --noEmit",
     "format": "prettier --write .",
-    "format:check": "prettier --check .",
-    "website:dev": "npm run dev --prefix website",
-    "website:build": "npm run build --prefix website",
-    "website:start": "npm run start --prefix website",
-    "website:deploy": "npm run deploy --prefix website",
-    "screenshots:store": "node scripts/generate-store-screenshots.mjs",
-    "screenshots:play": "node scripts/generate-play-store-assets.mjs"
+    "format:check": "prettier --check ."
   },
   "dependencies": {
     "@bacons/apple-targets": "^5.0.0",
@@ -95,10 +100,10 @@
     "eslint-config-expo": "~57.0.0",
     "eslint-plugin-simple-import-sort": "^14.0.0",
     "prettier": "^3.9.6",
+    "sharp": "^0.35.3",
     "tailwindcss": "^3.4.17",
     "tailwindcss-animate": "^1.0.7",
     "typescript": "~6.0.3",
-    "vitest": "^3.2.4",
-    "sharp": "^0.35.3"
+    "vitest": "^3.2.4"
   }
 }

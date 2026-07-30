@@ -51,3 +51,6 @@ lenswire-ca.cer
 **/android/.gradle/
 *.apk
 *.aab
+/build-*.apk
+/build-*.aab
+/dist/android/
