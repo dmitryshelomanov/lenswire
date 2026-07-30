@@ -192,5 +192,8 @@ export function mapNativeCapture(raw: Record<string, unknown>): TrafficEntry {
       ? raw.tlsAlpnProtocols.map((item) => String(item))
       : null,
     tlsSniPresent: asNullableBoolean(raw.tlsSniPresent),
+    tlsNegotiatedAlpn: asNullableString(raw.tlsNegotiatedAlpn),
+    upstreamHttpVersion: asNullableString(raw.upstreamHttpVersion),
+    bypassCause: asNullableString(raw.bypassCause),
   };
 }

@@ -1,3 +1,4 @@
+import { isInspectable } from '@/entities/traffic/badges';
 import {
   entryUrl,
   type HeaderMap,
@@ -21,7 +22,7 @@ const HOP_BY_HOP = new Set([
 
 export function canExportCurl(entry: TrafficEntry): boolean {
   if (entry.method === 'CONNECT') return false;
-  if (entry.captureMode === 'tunnel' && entry.httpPayloadAvailable === false) return false;
+  if (!isInspectable(entry)) return false;
   return entry.host.length > 0;
 }
 

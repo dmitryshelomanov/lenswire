@@ -96,8 +96,15 @@ export function OverviewTab({ entry }: { entry: TrafficEntry }) {
         <MetaRow label="TLS client hello" value={entry.tlsClientVersion} mono />
       ) : null}
       {entry.tlsAlpnProtocols && entry.tlsAlpnProtocols.length > 0 ? (
-        <MetaRow label="ALPN" value={entry.tlsAlpnProtocols.join(', ')} mono />
+        <MetaRow label="Client ALPN" value={entry.tlsAlpnProtocols.join(', ')} mono />
       ) : null}
+      {entry.tlsNegotiatedAlpn ? (
+        <MetaRow label="Negotiated (client)" value={entry.tlsNegotiatedAlpn} mono />
+      ) : null}
+      {entry.upstreamHttpVersion ? (
+        <MetaRow label="Upstream" value={entry.upstreamHttpVersion} mono />
+      ) : null}
+      {entry.bypassCause ? <MetaRow label="Bypass cause" value={entry.bypassCause} mono /> : null}
       {entry.tlsClientHelloBytes != null ? (
         <MetaRow label="ClientHello size" value={`${entry.tlsClientHelloBytes} B`} />
       ) : null}

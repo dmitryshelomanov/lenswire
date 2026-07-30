@@ -41,6 +41,7 @@ export type CaptureReasonCode =
   | 'mitm_fail_open'
   | 'mitm_handshake_failed'
   | 'mitm_unsupported'
+  | 'mitm_no_request'
   | 'mitm_websocket'
   | 'websocket_relay'
   | 'mitm_error'
@@ -119,6 +120,12 @@ export type TrafficEntry = {
   tlsClientVersion?: string | null;
   tlsAlpnProtocols?: string[] | null;
   tlsSniPresent?: boolean | null;
+  /** Negotiated ALPN on client↔Lenswire MITM socket (usually http/1.1). */
+  tlsNegotiatedAlpn?: string | null;
+  /** HTTP version Lenswire used toward origin (currently HTTP/1.1). */
+  upstreamHttpVersion?: string | null;
+  /** Why host entered session MITM bypass (mitm_handshake_failed, mitm_unsupported, …). */
+  bypassCause?: string | null;
 };
 
 export type ProxyStatus = 'stopped' | 'listening';

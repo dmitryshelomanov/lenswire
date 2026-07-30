@@ -78,6 +78,9 @@ export type NativeTrafficEntry = {
   tlsClientVersion?: string | null;
   tlsAlpnProtocols?: string[] | null;
   tlsSniPresent?: boolean | null;
+  tlsNegotiatedAlpn?: string | null;
+  upstreamHttpVersion?: string | null;
+  bypassCause?: string | null;
 };
 
 export type NativeDiagnostics = {

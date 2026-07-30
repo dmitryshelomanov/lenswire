@@ -1,5 +1,6 @@
 import * as React from 'react';
 
+import { isInspectable } from '@/entities/traffic/badges';
 import type { OverrideKind, OverrideRule, TrafficEntry } from '@/entities/traffic/types';
 import { getOverrides, setOverrides } from '@/shared/api/native-proxy';
 
@@ -7,9 +8,9 @@ import { contentTypeFromHeaders, headersFromEntry, newOverrideId } from '../lib/
 
 export { contentTypeFromHeaders, headersFromEntry } from '../lib/override-seed';
 
-/** Overrides need a decrypted HTTP exchange (not CONNECT tunnel passthrough). */
+/** Overrides need a decrypted HTTP exchange (not CONNECT tunnel / websocket). */
 export function canCreateOverride(entry: TrafficEntry): boolean {
-  if (entry.httpPayloadAvailable === false) return false;
+  if (!isInspectable(entry)) return false;
   if (entry.method === 'CONNECT') return false;
   return true;
 }

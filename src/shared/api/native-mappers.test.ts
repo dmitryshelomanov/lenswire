@@ -21,6 +21,9 @@ describe('mapNativeCapture', () => {
       sniHostname: '',
       tlsSniPresent: 'false',
       tlsAlpnProtocols: ['h2', 7],
+      tlsNegotiatedAlpn: 'http/1.1',
+      upstreamHttpVersion: 'HTTP/1.1',
+      bypassCause: 'mitm_handshake_failed',
     });
 
     expect(entry.id).toBe('42');
@@ -33,6 +36,9 @@ describe('mapNativeCapture', () => {
     expect(entry.sniHostname).toBeNull();
     expect(entry.tlsSniPresent).toBe(false);
     expect(entry.tlsAlpnProtocols).toEqual(['h2', '7']);
+    expect(entry.tlsNegotiatedAlpn).toBe('http/1.1');
+    expect(entry.upstreamHttpVersion).toBe('HTTP/1.1');
+    expect(entry.bypassCause).toBe('mitm_handshake_failed');
   });
 
   it('accepts body stubs without text or preview payloads', () => {

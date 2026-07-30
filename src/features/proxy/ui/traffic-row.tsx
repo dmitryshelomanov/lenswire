@@ -1,7 +1,7 @@
 import { router } from 'expo-router';
 import { Pressable, View } from 'react-native';
 
-import { methodBadgeVariant, reasonLabel, statusBadgeVariant } from '@/entities/traffic/badges';
+import { methodBadgeVariant, statusBadgeVariant } from '@/entities/traffic/badges';
 import { getEntryBadgeMeta } from '@/entities/traffic/entry-badges';
 import { grpcBadgeLabel } from '@/entities/traffic/grpc';
 import {
@@ -24,9 +24,8 @@ export function TrafficRow({ entry, collapsedCount = 1 }: Props) {
     minute: '2-digit',
     second: '2-digit',
   });
-  const reason = reasonLabel(entry.reasonCode);
   const mode = captureModeLabel(entry.captureMode);
-  const { httpVersion, grpcVariant, protobuf, grpcPath } = getEntryBadgeMeta(entry);
+  const { httpVersion, reason, grpcVariant, protobuf, grpcPath } = getEntryBadgeMeta(entry);
 
   return (
     <Pressable
