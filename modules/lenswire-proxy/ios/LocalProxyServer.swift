@@ -301,7 +301,7 @@ final class LocalProxyServer {
             tlsMeta: tlsMeta,
             clientHelloBytes: clientHelloSize
           )
-        case .handshakeRejected:
+        case .handshakeRejected(let detail):
           // Client already saw (or rejected) our MITM cert — ClientHello replay is impossible.
           self.addBypass(effectiveHost)
           self.appendTunnelCapture(
@@ -318,10 +318,11 @@ final class LocalProxyServer {
             sniHostname: sniHostname,
             tlsMeta: tlsMeta,
             clientHelloBytes: clientHelloSize,
-            note: nil
+            note: detail,
+            peekBytes: nil
           )
           client.cancel()
-        case .hardFailure:
+        case .hardFailure(let detail, let peekBytes):
           // Do not passthrough: TLS already started; raw ClientHello replay would desync.
           self.appendTunnelCapture(
             id: UUID().uuidString,
@@ -337,7 +338,8 @@ final class LocalProxyServer {
             sniHostname: sniHostname,
             tlsMeta: tlsMeta,
             clientHelloBytes: clientHelloSize,
-            note: nil
+            note: detail,
+            peekBytes: peekBytes
           )
           client.cancel()
         }
@@ -348,8 +350,8 @@ final class LocalProxyServer {
   private enum MitmOutcome {
     case success
     case failOpenPassthrough
-    case handshakeRejected
-    case hardFailure
+    case handshakeRejected(detail: String?)
+    case hardFailure(detail: String?, peek: Data?)
   }
 
   private func runPassthrough(
@@ -454,6 +456,7 @@ final class LocalProxyServer {
     clientHelloBytes: Int
   ) -> MitmOutcome {
     var handshakeStarted = false
+    var capturedPeek: Data?
     do {
       let identity = try CertificateAuthority.shared.leafIdentity(for: mitmHost)
       let serverTLS = try TLSBridge(
@@ -466,17 +469,37 @@ final class LocalProxyServer {
       handshakeStarted = true
       try serverTLS.handshake()
 
-      // Read one HTTP/1.1 request from the client.
-      var requestData = Data()
+      // Early sniff: abort only on clear non-HTTP/1.1 (h2, binary, EOF, unsupported method).
+      // Ambiguous printable fragments (e.g. partial "GET") continue into completeHTTPMessage.
+      let peek = try serverTLS.read()
+      capturedPeek = peek
+      let sniff = Self.sniffPayload(peek)
+      if Self.shouldAbortMitm(sniff, bytes: peek) {
+        serverTLS.close()
+        return .hardFailure(detail: Self.formatSniffDetail(sniff, bytes: peek), peek: peek)
+      }
+
+      // Finish one HTTP/1.1 request from the client (peek already consumed).
+      var requestData = peek
       while true {
-        let chunk = try serverTLS.read()
-        requestData.append(chunk)
         if Self.containsHeaderEnd(requestData) { break }
         if requestData.count > 1024 * 1024 { break }
+        let chunk = try serverTLS.read()
+        requestData.append(chunk)
       }
       requestData = try Self.completeHTTPMessage(initial: requestData, reader: serverTLS)
 
       var parsed = Self.parseHTTPRequest(requestData)
+      if !Self.isSupportedHTTPMethod(parsed.method) {
+        let bad = PayloadSniff(
+          guess: .http11,
+          method: parsed.method.uppercased(),
+          firstLine: sniff.firstLine,
+          looksLikeHttp11: true
+        )
+        serverTLS.close()
+        return .hardFailure(detail: Self.formatSniffDetail(bad, bytes: peek), peek: peek)
+      }
       let startedAt = Int(Date().timeIntervalSince1970 * 1000)
       let id = UUID().uuidString
       let t0 = Date()
@@ -648,13 +671,14 @@ final class LocalProxyServer {
       serverTLS.close()
       return .success
     } catch {
+      let detail = String(describing: error)
       if !handshakeStarted {
         return .failOpenPassthrough
       }
       if Self.isTlsHandshakeFailure(error) {
-        return .handshakeRejected
+        return .handshakeRejected(detail: detail)
       }
-      return .hardFailure
+      return .hardFailure(detail: detail, peek: capturedPeek)
     }
   }
 
@@ -1056,9 +1080,24 @@ final class LocalProxyServer {
     sniHostname: String?,
     tlsMeta: TlsSni.ClientHelloMeta?,
     clientHelloBytes: Int,
-    note: String?
+    note: String?,
+    peekBytes: Data? = nil
   ) {
-    let bodyText = note == nil ? reasonCode : "\(reasonCode): \(note!)"
+    let bodyText: String
+    if let note, !note.isEmpty {
+      bodyText = "\(reasonCode): \(note)"
+    } else {
+      bodyText = reasonCode
+    }
+    let requestBody: [String: Any]
+    if let peek = peekBytes, !peek.isEmpty {
+      requestBody = LenswireShared.classifyBody(
+        peek,
+        contentType: Self.isMostlyPrintable(peek) ? "text/plain" : "application/octet-stream"
+      )
+    } else {
+      requestBody = ["kind": "empty", "size": 0]
+    }
     LenswireShared.appendCapture([
       "id": id,
       "startedAt": startedAt,
@@ -1070,7 +1109,7 @@ final class LocalProxyServer {
       "status": status,
       "requestHeaders": [String: String](),
       "responseHeaders": [String: String](),
-      "requestBody": ["kind": "empty", "size": 0],
+      "requestBody": requestBody,
       "responseBody": LenswireShared.classifyBody(Data(bodyText.utf8), contentType: "text/plain"),
       "timing": Self.emptyTiming(totalMs: max(1, Int(Date().timeIntervalSince1970 * 1000) - startedAt)),
       "reasonCode": reasonCode,
@@ -1084,7 +1123,7 @@ final class LocalProxyServer {
       "effectiveHost": host,
       "captureMode": "tunnel",
       "httpPayloadAvailable": false,
-      "captureSummary": Self.summaryForReason(reasonCode),
+      "captureSummary": Self.summaryForReason(reasonCode, detail: note),
       "tlsClientHelloBytes": clientHelloBytes,
       "tlsRecordVersion": tlsMeta?.recordVersion ?? NSNull(),
       "tlsClientVersion": tlsMeta?.clientVersion ?? NSNull(),
@@ -1093,35 +1132,210 @@ final class LocalProxyServer {
     ])
   }
 
-  private static func summaryForReason(_ reasonCode: String) -> String {
+  private static func summaryForReason(_ reasonCode: String, detail: String? = nil) -> String {
+    let base: String
     switch reasonCode {
     case "decrypted":
-      return "TLS decrypted via MITM; full HTTP payload available."
+      base = "TLS decrypted via MITM; full HTTP payload available."
     case "http_plain":
-      return "Plain HTTP capture; full request/response payload available."
+      base = "Plain HTTP capture; full request/response payload available."
     case "decrypt_disabled":
-      return "HTTPS decrypt is disabled; connection is captured as a tunnel only."
+      base = "HTTPS decrypt is disabled; connection is captured as a tunnel only."
     case "ca_missing":
-      return "CA certificate is missing; connection is captured as a tunnel only."
+      base = "CA certificate is missing; connection is captured as a tunnel only."
     case "ip_no_sni":
-      return "Target is an IP without SNI; connection is captured as a tunnel only."
+      base = "Target is an IP without SNI; connection is captured as a tunnel only."
     case "no_client_hello":
-      return "No TLS ClientHello observed; connection is captured as a tunnel only."
+      base = "No TLS ClientHello observed; connection is captured as a tunnel only."
     case "mitm_bypassed":
-      return "Host is in MITM bypass list; connection is captured as a tunnel only."
+      base = "Host is in MITM bypass list; connection is captured as a tunnel only."
     case "mitm_fail_open":
-      return "MITM failed; proxy switched to fail-open tunnel mode."
+      base = "MITM failed; proxy switched to fail-open tunnel mode."
     case "mitm_handshake_failed":
-      return "TLS handshake rejected (client did not trust Lenswire CA, or TLS mismatch). Host bypassed for this VPN session."
+      base = "TLS handshake rejected (client did not trust Lenswire CA, or TLS mismatch). Host bypassed for this VPN session."
     case "mitm_error":
-      return "MITM proxy error after TLS handshake; connection closed (not fail-open tunnel)."
+      base = "MITM proxy error after TLS handshake; connection closed (not fail-open tunnel)."
     case "upstream_connect_failed":
-      return "Proxy could not connect to upstream target."
+      base = "Proxy could not connect to upstream target."
     case "passthrough":
-      return "HTTPS passthrough tunnel; HTTP payload is unavailable."
+      base = "HTTPS passthrough tunnel; HTTP payload is unavailable."
     default:
-      return reasonCode.replacingOccurrences(of: "_", with: " ")
+      base = reasonCode.replacingOccurrences(of: "_", with: " ")
     }
+    guard let detail, !detail.isEmpty else { return base }
+    return "\(base)\n\(detail)"
+  }
+
+  private struct PayloadSniff {
+    enum Guess: String {
+      case empty
+      case http2
+      case http11
+      case nonHttp = "non_http"
+    }
+
+    var guess: Guess
+    var method: String?
+    var firstLine: String?
+    var looksLikeHttp11: Bool
+  }
+
+  private static let supportedHTTPMethods: Set<String> = [
+    "GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS",
+  ]
+
+  private static func isSupportedHTTPMethod(_ method: String) -> Bool {
+    supportedHTTPMethods.contains(method.uppercased())
+  }
+
+  private static let http2Preface = Data("PRI * HTTP/2.0".utf8)
+  private static let printableRatioThreshold = 0.85
+
+  private static func sniffPayload(_ bytes: Data) -> PayloadSniff {
+    if bytes.isEmpty {
+      return PayloadSniff(guess: .empty, method: nil, firstLine: nil, looksLikeHttp11: false)
+    }
+    // Full or partial HTTP/2 connection preface (before OPTIONS * matching).
+    if bytes.starts(with: http2Preface) || looksLikeHttp2Preface(bytes) {
+      return PayloadSniff(
+        guess: .http2,
+        method: "PRI",
+        firstLine: firstLine(of: bytes),
+        looksLikeHttp11: false
+      )
+    }
+    let line = firstLine(of: bytes)
+    let method = methodFromRequestLine(line)
+    if let method, looksLikeHTTPRequestLine(line) {
+      return PayloadSniff(guess: .http11, method: method, firstLine: line, looksLikeHttp11: true)
+    }
+    return PayloadSniff(guess: .nonHttp, method: method, firstLine: line, looksLikeHttp11: false)
+  }
+
+  /// Abort on EOF, HTTP/2, clear binary, or unsupported HTTP/1.1 method.
+  /// Do not abort on ambiguous printable fragments (e.g. `"GET"` without a path).
+  private static func shouldAbortMitm(_ sniff: PayloadSniff, bytes: Data) -> Bool {
+    switch sniff.guess {
+    case .empty, .http2:
+      return true
+    case .http11:
+      if let method = sniff.method { return !isSupportedHTTPMethod(method) }
+      return false
+    case .nonHttp:
+      return isClearlyNonHttp(bytes)
+    }
+  }
+
+  private static func isMostlyPrintable(_ bytes: Data, threshold: Double = printableRatioThreshold) -> Bool {
+    guard !bytes.isEmpty else { return false }
+    let printable = bytes.reduce(0) { count, byte in
+      let c = Int(byte)
+      let ok = c == 9 || c == 10 || c == 13 || (c >= 0x20 && c <= 0x7e)
+      return count + (ok ? 1 : 0)
+    }
+    return Double(printable) / Double(bytes.count) >= threshold
+  }
+
+  private static func isClearlyNonHttp(_ bytes: Data) -> Bool {
+    if bytes.isEmpty { return true }
+    if !isMostlyPrintable(bytes) { return true }
+    let first = Int(bytes[bytes.startIndex])
+    let isLetter = (first >= 0x41 && first <= 0x5a) || (first >= 0x61 && first <= 0x7a)
+    return !isLetter
+  }
+
+  private static func looksLikeHttp2Preface(_ bytes: Data) -> Bool {
+    if !bytes.isEmpty && bytes.count < http2Preface.count && http2Preface.starts(with: bytes) {
+      return true
+    }
+    guard let line = firstLine(of: bytes),
+          let method = methodFromRequestLine(line),
+          method == "PRI"
+    else { return false }
+    let parts = line.split(separator: " ", maxSplits: 2, omittingEmptySubsequences: true)
+    return parts.count >= 2 && parts[1] == "*"
+  }
+
+  private static func formatSniffDetail(_ sniff: PayloadSniff, bytes: Data, maxHexBytes: Int = 64) -> String {
+    var parts: [String] = ["guess=\(sniff.guess.rawValue)"]
+    if let method = sniff.method, !method.isEmpty {
+      parts.append("method=\(method)")
+    }
+    if let firstLine = sniff.firstLine, !firstLine.isEmpty {
+      let clipped = firstLine.count > 120 ? String(firstLine.prefix(120)) : firstLine
+      parts.append("firstLine=\(clipped)")
+    }
+    if bytes.isEmpty {
+      parts.append("bytes=0")
+    } else {
+      parts.append("hex=\(hexPreview(bytes, maxBytes: maxHexBytes))")
+      parts.append("ascii=\(asciiPreview(bytes, maxBytes: maxHexBytes))")
+    }
+    return parts.joined(separator: "; ")
+  }
+
+  private static func firstLine(of bytes: Data) -> String? {
+    guard !bytes.isEmpty else { return nil }
+    var end = bytes.count
+    if let idx = bytes.firstIndex(of: 0x0a) {
+      end = idx
+    }
+    var sliceEnd = end
+    if sliceEnd > 0 && bytes[sliceEnd - 1] == 0x0d {
+      sliceEnd -= 1
+    }
+    let slice = bytes.subdata(in: 0..<sliceEnd)
+    let cleaned = String(slice.map { byte -> Character in
+      let c = Int(byte)
+      return (c >= 0x20 && c <= 0x7e) ? Character(UnicodeScalar(c)!) : "."
+    })
+    return cleaned.isEmpty ? nil : cleaned
+  }
+
+  private static func methodFromRequestLine(_ line: String?) -> String? {
+    guard let line, !line.isEmpty else { return nil }
+    let method = String(line.split(separator: " ", maxSplits: 1, omittingEmptySubsequences: true).first ?? "")
+    guard !method.isEmpty, method.unicodeScalars.allSatisfy({ CharacterSet.letters.contains($0) }) else {
+      return nil
+    }
+    return method.uppercased()
+  }
+
+  private static func looksLikeHTTPRequestLine(_ line: String?) -> Bool {
+    guard let line, !line.isEmpty else { return false }
+    let parts = line.split(separator: " ", maxSplits: 2, omittingEmptySubsequences: true)
+    guard parts.count >= 2 else { return false }
+    let method = String(parts[0])
+    guard !method.isEmpty, method.unicodeScalars.allSatisfy({ CharacterSet.letters.contains($0) }) else {
+      return false
+    }
+    if method.uppercased() == "PRI" { return false }
+    let target = String(parts[1])
+    return target.hasPrefix("/") || target == "*" || target.contains("://")
+  }
+
+  private static func hexPreview(_ bytes: Data, maxBytes: Int) -> String {
+    let n = min(bytes.count, maxBytes)
+    var parts: [String] = []
+    parts.reserveCapacity(n)
+    for i in 0..<n {
+      parts.append(String(format: "%02x", bytes[i]))
+    }
+    var out = parts.joined(separator: " ")
+    if bytes.count > maxBytes { out += " …" }
+    return out
+  }
+
+  private static func asciiPreview(_ bytes: Data, maxBytes: Int) -> String {
+    let n = min(bytes.count, maxBytes)
+    var out = ""
+    out.reserveCapacity(n)
+    for i in 0..<n {
+      let c = Int(bytes[i])
+      out.append((c >= 0x20 && c <= 0x7e) ? Character(UnicodeScalar(c)!) : ".")
+    }
+    if bytes.count > maxBytes { out.append("…") }
+    return out
   }
 
   private static func emptyTiming(totalMs: Int) -> [String: Int] {

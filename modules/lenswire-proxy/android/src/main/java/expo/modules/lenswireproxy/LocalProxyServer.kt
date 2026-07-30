@@ -319,6 +319,7 @@ class LocalProxyServer(private val context: Context) {
           tlsMeta = tlsMeta,
           clientHelloBytes = prefix.size,
           note = mitmResult.detail,
+          peekBytes = mitmResult.peekBytes,
         )
         runCatching { client.close() }
       }
@@ -329,7 +330,10 @@ class LocalProxyServer(private val context: Context) {
     data object Success : MitmOutcome()
     data class FailOpenPassthrough(val detail: String? = null) : MitmOutcome()
     data class HandshakeRejected(val detail: String? = null) : MitmOutcome()
-    data class HardFailure(val detail: String? = null) : MitmOutcome()
+    class HardFailure(
+      val detail: String? = null,
+      val peekBytes: ByteArray? = null,
+    ) : MitmOutcome()
   }
 
   private fun runMitm(
@@ -350,6 +354,7 @@ class LocalProxyServer(private val context: Context) {
     val mitmStartMs = System.currentTimeMillis()
     var handshakeStarted = false
     var socket: SSLSocket? = null
+    var capturedPeek: ByteArray? = null
     return try {
       val handshakeStartMs = System.currentTimeMillis()
       val sslContext = getOrCreateMitmContext(mitmHost)
@@ -374,13 +379,37 @@ class LocalProxyServer(private val context: Context) {
       tlsSocket.startHandshake()
       val handshakeDoneMs = System.currentTimeMillis()
 
-      val requestData = HttpIo.readHttpMessage(tlsSocket)
+      // Early sniff: abort only on clear non-HTTP/1.1 (h2, binary, EOF, unsupported method).
+      // Ambiguous printable fragments (e.g. partial "GET") continue into readHttpMessage.
+      val peekBytes = HttpIo.readFirstChunk(tlsSocket.inputStream)
+      capturedPeek = peekBytes
+      val sniff = MitmPayloadSniff.analyze(peekBytes)
+      if (MitmPayloadSniff.shouldAbortMitm(sniff, peekBytes)) {
+        runCatching { tlsSocket.close() }
+        return MitmOutcome.HardFailure(
+          detail = MitmPayloadSniff.formatDetail(sniff, peekBytes),
+          peekBytes = peekBytes,
+        )
+      }
+
+      val requestData = HttpIo.readHttpMessage(tlsSocket.inputStream, peekBytes)
       var parsed = parseHttpRequest(requestData)
       val stripped = ClientAttributionHeaders.stripAndExtract(parsed.headers)
       parsed = parsed.copy(headers = stripped.first)
       val effectiveClientAttribution = stripped.second ?: clientAttribution
-      if (!isSupportedMethod(parsed.method)) {
-        throw IllegalStateException("Unsupported HTTPS request method/protocol: ${parsed.method}")
+      if (!MitmPayloadSniff.isSupportedMethod(parsed.method)) {
+        runCatching { tlsSocket.close() }
+        return MitmOutcome.HardFailure(
+          detail = MitmPayloadSniff.formatDetail(
+            MitmPayloadSniff.Result(
+              guess = MitmPayloadSniff.Guess.HTTP11,
+              method = parsed.method,
+              firstLine = sniff.firstLine,
+            ),
+            peekBytes,
+          ),
+          peekBytes = peekBytes,
+        )
       }
       val upstreamHost = hostFromHeaders(parsed.headers) ?: mitmHost
       var overrideApplied: String? = null
@@ -521,7 +550,7 @@ class LocalProxyServer(private val context: Context) {
       } else if (isTlsHandshakeFailure(e)) {
         MitmOutcome.HandshakeRejected(detail)
       } else {
-        MitmOutcome.HardFailure(detail)
+        MitmOutcome.HardFailure(detail, capturedPeek)
       }
     }
   }
@@ -603,10 +632,19 @@ class LocalProxyServer(private val context: Context) {
     tlsMeta: TlsSni.ClientHelloMeta?,
     clientHelloBytes: Int,
     note: String?,
+    peekBytes: ByteArray? = null,
   ) {
     val bodyText = buildString {
       append(reasonCode)
       if (!note.isNullOrBlank()) append(": ").append(note)
+    }
+    val peek = peekBytes?.takeIf { it.isNotEmpty() }
+    val requestBody = if (peek != null) {
+      val contentType =
+        if (MitmPayloadSniff.isMostlyPrintable(peek)) "text/plain" else "application/octet-stream"
+      classifyBody(peek, contentType)
+    } else {
+      mapOf("kind" to "empty", "size" to 0)
     }
     CaptureStore.append(
       context,
@@ -621,7 +659,7 @@ class LocalProxyServer(private val context: Context) {
         "status" to status,
         "requestHeaders" to emptyMap<String, String>(),
         "responseHeaders" to emptyMap<String, String>(),
-        "requestBody" to mapOf("kind" to "empty", "size" to 0),
+        "requestBody" to requestBody,
         "responseBody" to classifyBody(bodyText.toByteArray(), "text/plain"),
         "timing" to timing(totalMs = maxOf(1L, System.currentTimeMillis() - startedAt)),
         "reasonCode" to reasonCode,
@@ -1051,13 +1089,4 @@ class LocalProxyServer(private val context: Context) {
     }
   }
 
-  private fun isSupportedMethod(method: String): Boolean {
-    return method == "GET" ||
-      method == "POST" ||
-      method == "PUT" ||
-      method == "PATCH" ||
-      method == "DELETE" ||
-      method == "HEAD" ||
-      method == "OPTIONS"
-  }
 }

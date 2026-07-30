@@ -35,12 +35,22 @@ internal object HttpIo {
     out.flush()
   }
 
-  fun readHttpMessage(socket: SSLSocket): ByteArray {
-    val input = socket.inputStream
+  fun readHttpMessage(socket: SSLSocket): ByteArray = readHttpMessage(socket.inputStream)
+
+  /** Reads one HTTP/1.1 message, optionally starting from already-read [prefix] bytes. */
+  fun readHttpMessage(input: InputStream, prefix: ByteArray = ByteArray(0)): ByteArray {
     val out = ByteArrayOutputStream()
+    if (prefix.isNotEmpty()) out.write(prefix)
     val buffer = ByteArray(4096)
-    var headerEnd = -1
+    var headerEnd = if (prefix.isNotEmpty()) indexOfHeaderEnd(prefix) else -1
     var contentLength = 0
+    if (headerEnd >= 0) {
+      val headerText = String(prefix, 0, headerEnd, Charsets.ISO_8859_1)
+      contentLength = parseContentLength(headerText)
+      if (messageComplete(out.toByteArray(), headerEnd, contentLength)) {
+        return out.toByteArray()
+      }
+    }
     while (out.size() < MAX_BODY_BYTES) {
       val read = input.read(buffer)
       if (read <= 0) break
@@ -53,16 +63,27 @@ internal object HttpIo {
           contentLength = parseContentLength(headerText)
         }
       }
-      if (headerEnd >= 0 && isChunkedHeader(String(bytes, 0, headerEnd, Charsets.ISO_8859_1))) {
-        val body = bytes.copyOfRange(headerEnd + 4, bytes.size)
-        val doneAt = chunkedPayloadLength(body)
-        if (doneAt != null && body.size >= doneAt) break
-      } else {
-        if (headerEnd >= 0 && bytes.size >= headerEnd + 4 + contentLength) break
-        if (headerEnd >= 0 && contentLength == 0) break
-      }
+      if (headerEnd >= 0 && messageComplete(bytes, headerEnd, contentLength)) break
     }
     return out.toByteArray()
+  }
+
+  /** First application-data chunk after TLS handshake (bounded; does not wait for HTTP headers). */
+  fun readFirstChunk(input: InputStream, maxBytes: Int = 4096): ByteArray {
+    val buffer = ByteArray(maxBytes)
+    val read = input.read(buffer)
+    return if (read <= 0) ByteArray(0) else buffer.copyOf(read)
+  }
+
+  private fun messageComplete(bytes: ByteArray, headerEnd: Int, contentLength: Int): Boolean {
+    if (headerEnd < 0) return false
+    val headerText = String(bytes, 0, headerEnd, Charsets.ISO_8859_1)
+    if (isChunkedHeader(headerText)) {
+      val body = bytes.copyOfRange(headerEnd + 4, bytes.size)
+      val doneAt = chunkedPayloadLength(body)
+      return doneAt != null && body.size >= doneAt
+    }
+    return bytes.size >= headerEnd + 4 + contentLength || contentLength == 0
   }
 
   fun readUntilHeaderEnd(input: InputStream, maxBytes: Int = 64 * 1024): ByteArray {

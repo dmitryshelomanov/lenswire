@@ -16,6 +16,9 @@ const TRUST_HINT =
 const BYPASS_HINT =
   'Host is on the session MITM bypass list after an earlier trust failure. Stop VPN (or force-stop Lenswire) to clear, then Start again.';
 
+const MITM_ERROR_HINT =
+  'After TLS handshake the client sent non-HTTP/1.1 (or an unsupported method). Check Capture summary and Request for protocol guess + byte preview (e.g. HTTP/2 PRI, binary).';
+
 export function isLikelyPinningOrTrustReject(entry: TrafficEntry): boolean {
   return (
     entry.reasonCode === 'mitm_handshake_failed' ||
@@ -35,6 +38,9 @@ export function payloadUnavailableHint(entry: TrafficEntry): string | null {
     if (entry.reasonCode === 'mitm_handshake_failed') {
       return `${summary}\n\n${TRUST_HINT}`;
     }
+    if (entry.reasonCode === 'mitm_error') {
+      return `${summary}\n\n${MITM_ERROR_HINT}`;
+    }
     return summary;
   }
   return null;
@@ -43,12 +49,14 @@ export function payloadUnavailableHint(entry: TrafficEntry): string | null {
 export function decryptHelpHint(entry: TrafficEntry): string | null {
   if (entry.reasonCode === 'mitm_bypassed') return BYPASS_HINT;
   if (entry.reasonCode === 'mitm_handshake_failed') return TRUST_HINT;
+  if (entry.reasonCode === 'mitm_error') return MITM_ERROR_HINT;
   return null;
 }
 
 export function decryptHelpTitle(entry: TrafficEntry): string | null {
   if (entry.reasonCode === 'mitm_bypassed') return 'MITM bypassed';
   if (entry.reasonCode === 'mitm_handshake_failed') return 'TLS trust / handshake';
+  if (entry.reasonCode === 'mitm_error') return 'MITM protocol mismatch';
   return null;
 }
 
