@@ -25,7 +25,8 @@ export function TrafficRow({ entry, collapsedCount = 1 }: Props) {
     second: '2-digit',
   });
   const mode = captureModeLabel(entry.captureMode);
-  const { httpVersion, reason, grpcVariant, protobuf, grpcPath } = getEntryBadgeMeta(entry);
+  const { httpVersion, reason, resourceLabel, grpcVariant, protobuf, grpcPath } =
+    getEntryBadgeMeta(entry);
 
   return (
     <Pressable
@@ -36,6 +37,7 @@ export function TrafficRow({ entry, collapsedCount = 1 }: Props) {
         <View className="min-w-0 flex-1 flex-row flex-wrap items-center gap-2">
           <Badge label={entry.method} variant={methodBadgeVariant(entry.method)} />
           <Badge label={String(entry.status)} variant={statusBadgeVariant(entry.status)} />
+          {resourceLabel ? <Badge label={resourceLabel} variant="outline" /> : null}
           <Badge label={mode} variant="default" />
           {httpVersion ? <Badge label={httpVersion} variant="outline" /> : null}
           {grpcVariant ? <Badge label={grpcBadgeLabel(grpcVariant)} variant="info" /> : null}

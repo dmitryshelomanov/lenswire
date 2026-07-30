@@ -25,6 +25,32 @@ describe('resourceTypeOf', () => {
     expect(resourceTypeOf(js)).toBe('js');
   });
 
+  it('classifies Google Fonts /l/font kit paths as font', () => {
+    const entry = makeTrafficEntry({
+      path: '/l/font?kit=memSYaGs126&v=v44',
+      responseHeaders: {},
+    });
+    expect(resourceTypeOf(entry)).toBe('font');
+  });
+
+  it('classifies by Sec-Fetch-Dest when mime and extension are absent', () => {
+    const entry = makeTrafficEntry({
+      path: '/assets/kit',
+      requestHeaders: { 'Sec-Fetch-Dest': 'font' },
+      responseHeaders: {},
+    });
+    expect(resourceTypeOf(entry)).toBe('font');
+  });
+
+  it('prefers response content-type over Sec-Fetch-Dest', () => {
+    const entry = makeTrafficEntry({
+      path: '/assets/kit',
+      requestHeaders: { 'sec-fetch-dest': 'font' },
+      responseHeaders: { 'content-type': 'image/png' },
+    });
+    expect(resourceTypeOf(entry)).toBe('img');
+  });
+
   it('returns other when no heuristics match', () => {
     const entry = makeTrafficEntry({ path: '/api/no-extension', responseHeaders: {} });
     expect(resourceTypeOf(entry)).toBe('other');

@@ -21,7 +21,8 @@ export function RequestDetailHeader({ entry }: { entry: TrafficEntry }) {
   const { copied, copy } = useCopiedFeedback();
   const curlOk = canExportCurl(entry);
   const harOk = canExportHar(entry);
-  const { httpVersion, reason, grpcVariant, protobuf, grpcPath } = getEntryBadgeMeta(entry);
+  const { httpVersion, reason, resourceLabel, grpcVariant, protobuf, grpcPath } =
+    getEntryBadgeMeta(entry);
 
   const onCopyCurl = React.useCallback(() => {
     if (!curlOk) {
@@ -51,6 +52,7 @@ export function RequestDetailHeader({ entry }: { entry: TrafficEntry }) {
         <View className="min-w-0 flex-1 flex-row flex-wrap items-center gap-2">
           <Badge label={entry.method} variant={methodBadgeVariant(entry.method)} />
           <Badge label={String(entry.status)} variant={statusBadgeVariant(entry.status)} />
+          {resourceLabel ? <Badge label={resourceLabel} variant="outline" /> : null}
           {httpVersion ? <Badge label={httpVersion} variant="outline" /> : null}
           {grpcVariant ? <Badge label={grpcBadgeLabel(grpcVariant)} variant="info" /> : null}
           {protobuf ? <Badge label="+protobuf" variant="info" /> : null}

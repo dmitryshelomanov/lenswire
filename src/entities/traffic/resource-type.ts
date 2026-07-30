@@ -1,4 +1,5 @@
 import { isGrpcEntry } from './grpc';
+import { headerValue } from './headers';
 import type { ResourceKind, TrafficEntry } from './types';
 
 function mimeFromHeaders(headers: Record<string, string>): string {
@@ -10,13 +11,45 @@ function mimeFromHeaders(headers: Record<string, string>): string {
   return '';
 }
 
+function pathWithoutQuery(path: string): string {
+  return path.split('?')[0] ?? path;
+}
+
 function extensionOf(path: string): string {
-  const bare = path.split('?')[0] ?? path;
+  const bare = pathWithoutQuery(path);
   const slash = bare.lastIndexOf('/');
   const name = slash >= 0 ? bare.slice(slash + 1) : bare;
   const dot = name.lastIndexOf('.');
   if (dot <= 0 || dot === name.length - 1) return '';
   return name.slice(dot + 1).toLowerCase();
+}
+
+/** Google Fonts kit URLs and similar: `/l/font` with no file extension. */
+function fromFontPath(path: string): ResourceKind | null {
+  const bare = pathWithoutQuery(path);
+  if (bare === 'font' || bare === '/font' || bare.endsWith('/font')) return 'font';
+  return null;
+}
+
+function fromSecFetchDest(entry: TrafficEntry): ResourceKind | null {
+  const dest = headerValue(entry.requestHeaders, 'sec-fetch-dest').toLowerCase();
+  switch (dest) {
+    case 'font':
+      return 'font';
+    case 'script':
+      return 'js';
+    case 'style':
+      return 'css';
+    case 'image':
+      return 'img';
+    case 'audio':
+    case 'video':
+      return 'media';
+    case 'document':
+      return 'doc';
+    default:
+      return null;
+  }
 }
 
 function fromMime(mime: string): ResourceKind | null {
@@ -104,6 +137,12 @@ export function resourceTypeOf(entry: TrafficEntry): ResourceKind {
   const mime = mimeFromHeaders(entry.responseHeaders);
   const fromHeader = fromMime(mime);
   if (fromHeader) return fromHeader;
+
+  const fromPathHint = fromFontPath(entry.path);
+  if (fromPathHint) return fromPathHint;
+
+  const fromFetchDest = fromSecFetchDest(entry);
+  if (fromFetchDest) return fromFetchDest;
 
   const fromPath = fromExtension(extensionOf(entry.path));
   if (fromPath) return fromPath;
