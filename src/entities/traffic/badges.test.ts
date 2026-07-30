@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { hasProtobufContentType, httpVersionLabel } from './badges';
+import { hasProtobufContentType, httpVersionLabel, reasonLabel } from './badges';
 import { makeTrafficEntry } from './test-fixtures';
 
 describe('hasProtobufContentType', () => {
@@ -96,5 +96,18 @@ describe('httpVersionLabel', () => {
       captureSummary: 'guess=http2',
     });
     expect(httpVersionLabel(entry)).toBe('HTTP/1.1');
+  });
+});
+
+describe('reasonLabel', () => {
+  it('labels new bypass reason codes', () => {
+    expect(reasonLabel('mitm_unsupported')).toBe('unsupported');
+    expect(reasonLabel('alpn_no_http11')).toBe('no h1.1');
+    expect(reasonLabel('mitm_websocket')).toBe('websocket');
+    expect(reasonLabel('websocket_relay')).toBe('ws relay');
+    expect(reasonLabel('http_upstream_failed')).toBe('http fail');
+    expect(reasonLabel('http_upstream_timeout')).toBe('http timeout');
+    expect(reasonLabel('http_dns_failed')).toBe('dns fail');
+    expect(reasonLabel('http_cleartext_blocked')).toBe('cleartext');
   });
 });

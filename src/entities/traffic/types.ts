@@ -40,8 +40,16 @@ export type CaptureReasonCode =
   | 'mitm_bypassed'
   | 'mitm_fail_open'
   | 'mitm_handshake_failed'
+  | 'mitm_unsupported'
+  | 'mitm_websocket'
+  | 'websocket_relay'
   | 'mitm_error'
+  | 'alpn_no_http11'
   | 'upstream_connect_failed'
+  | 'http_upstream_failed'
+  | 'http_upstream_timeout'
+  | 'http_dns_failed'
+  | 'http_cleartext_blocked'
   | string;
 
 export type HostnameSource = 'sni' | 'connect' | 'host_header' | 'ip' | string;

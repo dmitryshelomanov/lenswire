@@ -45,6 +45,22 @@ export function reasonLabel(reasonCode: string | undefined): string | null {
       return 'fail-open';
     case 'mitm_handshake_failed':
       return 'trust?';
+    case 'mitm_unsupported':
+      return 'unsupported';
+    case 'mitm_websocket':
+      return 'websocket';
+    case 'websocket_relay':
+      return 'ws relay';
+    case 'alpn_no_http11':
+      return 'no h1.1';
+    case 'http_upstream_failed':
+      return 'http fail';
+    case 'http_upstream_timeout':
+      return 'http timeout';
+    case 'http_dns_failed':
+      return 'dns fail';
+    case 'http_cleartext_blocked':
+      return 'cleartext';
     case 'passthrough':
       return 'tunnel';
     default:
