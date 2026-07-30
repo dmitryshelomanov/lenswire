@@ -54,7 +54,9 @@
     "website:dev": "npm run dev --prefix website",
     "website:build": "npm run build --prefix website",
     "website:start": "npm run start --prefix website",
-    "website:deploy": "npm run deploy --prefix website"
+    "website:deploy": "npm run deploy --prefix website",
+    "screenshots:store": "node scripts/generate-store-screenshots.mjs",
+    "screenshots:play": "node scripts/generate-play-store-assets.mjs"
   },
   "dependencies": {
     "@bacons/apple-targets": "^5.0.0",
