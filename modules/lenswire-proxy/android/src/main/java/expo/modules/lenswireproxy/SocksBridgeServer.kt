@@ -17,11 +17,16 @@ import java.util.concurrent.atomic.AtomicBoolean
 class SocksBridgeServer(
   private val localProxyPort: Int,
   private val listenPort: Int = 1080,
+  private val protectSocket: ((Socket) -> Boolean)? = null,
 ) {
   private val running = AtomicBoolean(false)
   private var serverSocket: ServerSocket? = null
   private var pool: ExecutorService? = null
   private val relayPool: ExecutorService = Executors.newCachedThreadPool()
+
+  private fun protectIfNeeded(socket: Socket) {
+    runCatching { protectSocket?.invoke(socket) }
+  }
 
   fun start() {
     if (!running.compareAndSet(false, true)) return
@@ -74,6 +79,7 @@ class SocksBridgeServer(
 
       if (target.port == 80) {
         val proxySocket = Socket()
+        protectIfNeeded(proxySocket)
         proxySocket.connect(InetSocketAddress("127.0.0.1", localProxyPort), 10_000)
         proxySocket.soTimeout = 25_000
         // Plain HTTP origin-form requests can be forwarded directly.
@@ -96,6 +102,7 @@ class SocksBridgeServer(
       }
 
       val proxySocket = Socket()
+      protectIfNeeded(proxySocket)
       proxySocket.connect(InetSocketAddress("127.0.0.1", localProxyPort), 10_000)
       proxySocket.soTimeout = 25_000
 

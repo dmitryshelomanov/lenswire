@@ -10,6 +10,7 @@ import android.net.VpnService
 import android.os.Build
 import android.os.ParcelFileDescriptor
 import androidx.core.app.NotificationCompat
+import java.net.Socket
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
@@ -23,6 +24,12 @@ class LenswireVpnService : VpnService() {
     const val ACTION_STOP = "expo.modules.lenswireproxy.STOP"
     const val CHANNEL_ID = "lenswire_vpn"
     const val NOTIFICATION_ID = 42
+    private const val IPV6_ROUTE_ENABLED_KEY = "vpnIpv6RouteEnabled"
+
+    private var serviceInstance: LenswireVpnService? = null
+
+    fun protectSocket(socket: Socket): Boolean =
+      serviceInstance?.runCatching { protect(socket) }?.getOrDefault(false) == true
 
     @Volatile
     var isRunning: Boolean = false
@@ -40,6 +47,11 @@ class LenswireVpnService : VpnService() {
   private var tunInterface: ParcelFileDescriptor? = null
   private var tun2Socks: Tun2SocksRuntime? = null
   private val started = AtomicBoolean(false)
+
+  override fun onCreate() {
+    super.onCreate()
+    serviceInstance = this
+  }
 
   override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
     when (intent?.action) {
@@ -69,7 +81,8 @@ class LenswireVpnService : VpnService() {
       .addRoute("0.0.0.0", 0)
       .addDnsServer("1.1.1.1")
       .addDnsServer("8.8.8.8")
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+    val includeIpv6Route = shouldIncludeIpv6Route()
+    if (includeIpv6Route && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
       builder.addRoute("::", 0)
     }
     try {
@@ -84,11 +97,11 @@ class LenswireVpnService : VpnService() {
         return
       }
 
-      val proxy = LocalProxyServer(applicationContext)
+      val proxy = LocalProxyServer(applicationContext, ::protectSocket)
       proxy.start(CaptureStore.PROXY_PORT)
       proxyServer = proxy
 
-      val socks = SocksBridgeServer(localProxyPort = CaptureStore.PROXY_PORT, listenPort = 1080)
+      val socks = SocksBridgeServer(localProxyPort = CaptureStore.PROXY_PORT, listenPort = 1080, protectSocket = ::protectSocket)
       socks.start()
       socksBridgeServer = socks
 
@@ -114,7 +127,8 @@ class LenswireVpnService : VpnService() {
         "tunFd" to tunFd,
         "proxyPort" to CaptureStore.PROXY_PORT,
         "socksPort" to 1080,
-        "routes" to listOf("0.0.0.0/0", "::/0"),
+        "routes" to if (includeIpv6Route) listOf("0.0.0.0/0", "::/0") else listOf("0.0.0.0/0"),
+        "ipv6RouteEnabled" to includeIpv6Route,
         "dns" to listOf("1.1.1.1", "8.8.8.8"),
         "httpsDecrypt" to applicationContext
           .getSharedPreferences("lenswire_settings", MODE_PRIVATE)
@@ -199,9 +213,15 @@ class LenswireVpnService : VpnService() {
   }
 
   override fun onDestroy() {
+    serviceInstance = null
     stopCapture()
     super.onDestroy()
   }
+
+  private fun shouldIncludeIpv6Route(): Boolean =
+    applicationContext
+      .getSharedPreferences("lenswire_settings", MODE_PRIVATE)
+      .getBoolean(IPV6_ROUTE_ENABLED_KEY, false)
 
   private fun createNotificationChannel() {
     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return

@@ -3,11 +3,14 @@ package expo.modules.lenswireproxy
 import android.content.Context
 import java.net.HttpURLConnection
 import java.net.InetAddress
+import java.net.InetSocketAddress
 import java.net.Proxy
 import java.net.ServerSocket
 import java.net.Socket
 import java.net.URI
 import java.net.URL
+import java.io.ByteArrayOutputStream
+import java.io.InputStream
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ExecutorService
@@ -18,7 +21,10 @@ import javax.net.ssl.KeyManagerFactory
 import javax.net.ssl.SSLContext
 import javax.net.ssl.SSLSocket
 
-class LocalProxyServer(private val context: Context) {
+class LocalProxyServer(
+  private val context: Context,
+  private val protectSocket: ((Socket) -> Boolean)? = null,
+) {
   private val running = AtomicBoolean(false)
   private var serverSocket: ServerSocket? = null
   private var acceptPool: ExecutorService? = null
@@ -26,6 +32,17 @@ class LocalProxyServer(private val context: Context) {
   private val mitmContexts = ConcurrentHashMap<String, SSLContext>()
   /** Hosts that rejected MITM (pinning / trust). Subsequent flows fail-open to passthrough. */
   private val mitmBypassHosts = ConcurrentHashMap.newKeySet<String>()
+
+  private fun protectIfNeeded(socket: Socket) {
+    runCatching { protectSocket?.invoke(socket) }
+  }
+
+  private fun connectUpstreamSocket(host: String, port: Int, timeoutMs: Int): Socket {
+    val socket = Socket()
+    protectIfNeeded(socket)
+    socket.connect(InetSocketAddress(host, port), timeoutMs)
+    return socket
+  }
 
   fun start(port: Int = CaptureStore.PROXY_PORT) {
     if (!running.compareAndSet(false, true)) return
@@ -207,11 +224,13 @@ class LocalProxyServer(private val context: Context) {
     val caReady = CertificateManager.loadCa(context) != null
     val bypassed = mitmBypassHosts.contains(effectiveHost.lowercase())
     val clientHelloExpected = prefix.isNotEmpty() || headerSni != null
+    val alpnOk = MitmAlpn.allowsHttp11Mitm(tlsMeta?.alpnProtocols)
     val canMitm = decryptEnabled &&
       caReady &&
       !TlsSni.isIpLiteral(effectiveHost) &&
       !bypassed &&
-      clientHelloExpected
+      clientHelloExpected &&
+      alpnOk
 
     val reasonCode = when {
       !decryptEnabled -> "decrypt_disabled"
@@ -219,6 +238,7 @@ class LocalProxyServer(private val context: Context) {
       bypassed -> "mitm_bypassed"
       TlsSni.isIpLiteral(effectiveHost) -> "ip_no_sni"
       !clientHelloExpected -> "no_client_hello"
+      !alpnOk -> "alpn_no_http11"
       else -> null
     }
 
@@ -302,8 +322,11 @@ class LocalProxyServer(private val context: Context) {
         runCatching { client.close() }
       }
       is MitmOutcome.HardFailure -> {
-        // Do not bypass: next connection may still be HTTP/1.1 and decrypt fine.
-        // Do not passthrough: TLS already started; raw ClientHello replay would desync.
+        // Do not passthrough this socket: TLS already started; ClientHello replay would desync.
+        // Unsupported protocol / WebSocket → bypass host so retries go tunnel-only.
+        if (mitmResult.bypassHost) {
+          mitmBypassHosts.add(effectiveHost.lowercase())
+        }
         appendTunnelCapture(
           id = id,
           startedAt = startedAt,
@@ -311,7 +334,10 @@ class LocalProxyServer(private val context: Context) {
           connectHost = connectHost,
           connectPort = port,
           status = 502,
-          reasonCode = "mitm_error",
+          reasonCode = when {
+            !mitmResult.bypassHost -> "mitm_error"
+            else -> mitmResult.reasonCode
+          },
           clientAttribution = clientAttribution,
           hostnameSource = hostnameSource,
           hostnameConfidence = hostnameConfidence,
@@ -333,6 +359,9 @@ class LocalProxyServer(private val context: Context) {
     class HardFailure(
       val detail: String? = null,
       val peekBytes: ByteArray? = null,
+      /** True for sniff/unsupported-method/WebSocket; host joins session bypass list. */
+      val bypassHost: Boolean = false,
+      val reasonCode: String = "mitm_unsupported",
     ) : MitmOutcome()
   }
 
@@ -389,6 +418,7 @@ class LocalProxyServer(private val context: Context) {
         return MitmOutcome.HardFailure(
           detail = MitmPayloadSniff.formatDetail(sniff, peekBytes),
           peekBytes = peekBytes,
+          bypassHost = true,
         )
       }
 
@@ -409,6 +439,32 @@ class LocalProxyServer(private val context: Context) {
             peekBytes,
           ),
           peekBytes = peekBytes,
+          bypassHost = true,
+        )
+      }
+      if (HttpUpgrade.isWebSocketUpgrade(parsed.headers)) {
+        val upstreamHost = hostFromHeaders(parsed.headers) ?: mitmHost
+        return relayWebSocketUpgrade(
+          clientTls = tlsSocket,
+          requestBytes = buildHttpRequestBytes(parsed),
+          parsed = parsed,
+          upstreamHost = upstreamHost,
+          port = port,
+          useTls = true,
+          id = id,
+          startedAt = startedAt,
+          connectHost = connectHost,
+          clientAttribution = effectiveClientAttribution,
+          hostnameSource = if (hostFromHeaders(parsed.headers) != null) "host_header" else hostnameSource,
+          hostnameConfidence = if (hostFromHeaders(parsed.headers) != null) "high" else hostnameConfidence,
+          sniHostname = sniHostname,
+          tlsMeta = tlsMeta,
+          clientHelloBytes = clientHelloBytes,
+          handshakeStartMs = handshakeStartMs,
+          handshakeDoneMs = handshakeDoneMs,
+          mitmStartMs = mitmStartMs,
+          scheme = "https",
+          captureMode = "mitm",
         )
       }
       val upstreamHost = hostFromHeaders(parsed.headers) ?: mitmHost
@@ -573,7 +629,7 @@ class LocalProxyServer(private val context: Context) {
     detail: String? = null,
   ) {
     try {
-      val upstream = Socket(connectHost, port)
+      val upstream = connectUpstreamSocket(connectHost, port, 20_000)
       upstream.soTimeout = 25_000
       if (prefix.isNotEmpty()) {
         upstream.getOutputStream().write(prefix)
@@ -597,6 +653,7 @@ class LocalProxyServer(private val context: Context) {
       )
       relayBidirectional(client, upstream)
     } catch (e: Exception) {
+      val failure = upstreamFailureDetail("tcp", connectHost, port, e)
       appendTunnelCapture(
         id = id,
         startedAt = startedAt,
@@ -611,7 +668,7 @@ class LocalProxyServer(private val context: Context) {
         sniHostname = sniHostname,
         tlsMeta = tlsMeta,
         clientHelloBytes = clientHelloBytes,
-        note = e.message,
+        note = failure.detail,
       )
       runCatching { client.close() }
     }
@@ -700,6 +757,55 @@ class LocalProxyServer(private val context: Context) {
     val captureHost = host.ifBlank { url.host ?: "unknown" }
     val capturePath = path.ifEmpty { "/" }
     val captureScheme = if (scheme == "https") "https" else "http"
+
+    if (HttpUpgrade.isWebSocketUpgrade(headers)) {
+      val parsed = ParsedRequest(
+        method = method,
+        path = capturePath,
+        query = query,
+        pathWithQuery = capturePath + if (query.isNotEmpty()) "?$query" else "",
+        headers = headers,
+        body = requestBody,
+      )
+      val upstreamPort = when {
+        url.port > 0 -> url.port
+        captureScheme == "https" -> 443
+        else -> 80
+      }
+      val outcome = relayWebSocketUpgrade(
+        clientTls = client,
+        requestBytes = buildHttpRequestBytes(
+          parsed,
+          requestTarget = if (rawTarget.startsWith("http://") || rawTarget.startsWith("https://")) {
+            rawTarget
+          } else {
+            null
+          },
+        ),
+        parsed = parsed,
+        upstreamHost = captureHost,
+        port = upstreamPort,
+        useTls = captureScheme == "https",
+        id = UUID.randomUUID().toString(),
+        startedAt = startMs,
+        connectHost = captureHost,
+        clientAttribution = clientAttribution,
+        hostnameSource = "host_header",
+        hostnameConfidence = "high",
+        sniHostname = null,
+        tlsMeta = null,
+        clientHelloBytes = 0,
+        handshakeStartMs = startMs,
+        handshakeDoneMs = startMs,
+        mitmStartMs = startMs,
+        scheme = captureScheme,
+        captureMode = "http",
+      )
+      return when (outcome) {
+        is MitmOutcome.Success -> 101
+        else -> 502
+      }
+    }
 
     val responseRule = OverrideRules.find(
       context,
@@ -858,13 +964,45 @@ class LocalProxyServer(private val context: Context) {
       } finally {
         runCatching { conn.disconnect() }
       }
-    } catch (_: Exception) {
+    } catch (e: Exception) {
+      val failure = upstreamFailureDetail(captureScheme, captureHost, if (url.port > 0) url.port else if (captureScheme == "https") 443 else 80, e)
       val body = "Lenswire upstream error\r\n".toByteArray()
       try {
         HttpIo.writeHttpResponse(client.getOutputStream(), 502, emptyMap(), body, statusMessage = "Bad Gateway")
         client.close()
       } catch (_: Exception) {
       }
+      CaptureStore.append(
+        context,
+        mapOf(
+          "id" to UUID.randomUUID().toString(),
+          "startedAt" to System.currentTimeMillis(),
+          "method" to method,
+          "scheme" to captureScheme,
+          "host" to captureHost,
+          "path" to capturePath,
+          "query" to query,
+          "status" to 502,
+          "requestHeaders" to effectiveHeaders,
+          "responseHeaders" to emptyMap<String, String>(),
+          "requestBody" to classifyBodyWithHeaders(effectiveBody, effectiveHeaders),
+          "responseBody" to classifyBody(body, "text/plain"),
+          "timing" to timing(totalMs = maxOf(1L, System.currentTimeMillis() - startMs)),
+          "overrideApplied" to overrideApplied,
+          "reasonCode" to failure.reasonCode,
+          "hostnameSource" to "host_header",
+          "hostnameConfidence" to "high",
+          "sniHostname" to null,
+          "rawTarget" to rawTarget,
+          "connectTarget" to null,
+          "connectHost" to null,
+          "connectPort" to null,
+          "effectiveHost" to captureHost,
+          "captureMode" to "http",
+          "httpPayloadAvailable" to false,
+          "captureSummary" to summaryForReason(failure.reasonCode, failure.detail),
+        ) + ClientAttributionHeaders.asCaptureFields(clientAttribution),
+      )
       502
     }
   }
@@ -886,6 +1024,37 @@ class LocalProxyServer(private val context: Context) {
     val downloadMs: Int,
     val totalMs: Int,
   )
+
+  private data class UpstreamFailureDetail(
+    val reasonCode: String,
+    val detail: String,
+  )
+
+private fun upstreamFailureDetail(
+  scheme: String,
+  host: String,
+  port: Int,
+  error: Exception,
+): UpstreamFailureDetail {
+  val className = error.javaClass.simpleName.ifBlank { error.javaClass.name }
+  val message = error.message?.takeIf { it.isNotBlank() } ?: "no message"
+  val lower = "$className: $message".lowercase()
+  val reasonCode = when {
+    lower.contains("cleartext") && lower.contains("not permitted") -> "http_cleartext_blocked"
+    lower.contains("unknownhost") || lower.contains("unable to resolve host") || lower.contains("no address associated") -> "http_dns_failed"
+    lower.contains("timedout") || lower.contains("timeout") -> "http_upstream_timeout"
+    lower.contains("connectexception") ||
+      lower.contains("econnrefused") ||
+      lower.contains("network is unreachable") ||
+      lower.contains("enetunreach") ||
+      lower.contains("noroutetohost") -> "upstream_connect_failed"
+    else -> "http_upstream_failed"
+  }
+  return UpstreamFailureDetail(
+    reasonCode = reasonCode,
+    detail = "upstream=$scheme://$host:$port; $className: $message",
+  )
+}
 
   private fun parseHttpRequest(data: ByteArray): ParsedRequest {
     val text = String(data, Charsets.ISO_8859_1)
@@ -1035,8 +1204,16 @@ class LocalProxyServer(private val context: Context) {
       "mitm_bypassed" -> "Host is in MITM bypass list; connection is captured as a tunnel only. Stop VPN to clear."
       "mitm_fail_open" -> "MITM failed; proxy switched to fail-open tunnel mode."
       "mitm_handshake_failed" -> "TLS handshake rejected (client did not trust Lenswire CA, or TLS mismatch). Host bypassed for this VPN session."
+      "mitm_unsupported" -> "Unsupported protocol after MITM (e.g. HTTP/2 or binary); connection closed and host bypassed for this VPN session."
+      "mitm_websocket" -> "WebSocket upgrade is not supported; connection closed and host bypassed for this VPN session."
+      "websocket_relay" -> "WebSocket upgrade relayed to upstream; frames are not inspected."
       "mitm_error" -> "MITM proxy error after TLS handshake; connection closed (not fail-open tunnel)."
+      "alpn_no_http11" -> "ClientHello ALPN has no http/1.1; connection is captured as a tunnel only."
       "upstream_connect_failed" -> "Proxy could not connect to upstream target."
+      "http_upstream_failed" -> "Plain HTTP upstream request failed before any response was received."
+      "http_upstream_timeout" -> "Plain HTTP upstream request timed out before any response was received."
+      "http_dns_failed" -> "DNS resolution failed while forwarding plain HTTP upstream request."
+      "http_cleartext_blocked" -> "Android cleartext policy blocked plain HTTP upstream request."
       "passthrough" -> "HTTPS passthrough tunnel; HTTP payload is unavailable."
       else -> reasonCode.replace('_', ' ')
     }
@@ -1087,6 +1264,174 @@ class LocalProxyServer(private val context: Context) {
       HttpIo.relay(right, left)
       closeBoth()
     }
+  }
+
+  /**
+   * Forward a WebSocket upgrade HTTP request to upstream and bidirectional-pipe frames.
+   * Does not add the host to the MITM bypass list.
+   */
+  private fun relayWebSocketUpgrade(
+    clientTls: Socket,
+    requestBytes: ByteArray,
+    parsed: ParsedRequest,
+    upstreamHost: String,
+    port: Int,
+    useTls: Boolean,
+    id: String,
+    startedAt: Long,
+    connectHost: String,
+    clientAttribution: ClientAttribution?,
+    hostnameSource: String,
+    hostnameConfidence: String,
+    sniHostname: String?,
+    tlsMeta: TlsSni.ClientHelloMeta?,
+    clientHelloBytes: Int,
+    handshakeStartMs: Long,
+    handshakeDoneMs: Long,
+    mitmStartMs: Long,
+    scheme: String,
+    captureMode: String,
+  ): MitmOutcome {
+    var upstream: Socket? = null
+    return try {
+      val tcp = connectUpstreamSocket(upstreamHost, port, 20_000)
+      tcp.soTimeout = 25_000
+      upstream = if (useTls) {
+        val ctx = SSLContext.getDefault()
+        val ssl = ctx.socketFactory.createSocket(tcp, upstreamHost, port, true) as SSLSocket
+        ssl.useClientMode = true
+        ssl.startHandshake()
+        ssl
+      } else {
+        tcp
+      }
+      val up = upstream!!
+      up.getOutputStream().write(requestBytes)
+      up.getOutputStream().flush()
+
+      val responseHeaderBytes = readHttpHeaderBlock(up.getInputStream())
+      clientTls.getOutputStream().write(responseHeaderBytes)
+      clientTls.getOutputStream().flush()
+
+      val status = parseHttpStatus(responseHeaderBytes) ?: 0
+      val doneMs = System.currentTimeMillis()
+      CaptureStore.append(
+        context,
+        mapOf(
+          "id" to id,
+          "startedAt" to startedAt,
+          "method" to parsed.method,
+          "scheme" to scheme,
+          "host" to upstreamHost,
+          "path" to parsed.path,
+          "query" to parsed.query,
+          "status" to if (status > 0) status else 101,
+          "requestHeaders" to parsed.headers,
+          "responseHeaders" to parseResponseHeaderMap(responseHeaderBytes),
+          "requestBody" to classifyBodyWithHeaders(parsed.body, parsed.headers),
+          "responseBody" to classifyBody(ByteArray(0), null),
+          "timing" to timing(
+            tlsMs = maxOf(0L, handshakeDoneMs - handshakeStartMs).toInt(),
+            totalMs = maxOf(1L, doneMs - mitmStartMs),
+          ),
+          "reasonCode" to "websocket_relay",
+          "hostnameSource" to hostnameSource,
+          "hostnameConfidence" to hostnameConfidence,
+          "sniHostname" to sniHostname,
+          "rawTarget" to "$connectHost:$port",
+          "connectTarget" to "$connectHost:$port",
+          "connectHost" to connectHost,
+          "connectPort" to port,
+          "effectiveHost" to upstreamHost,
+          "captureMode" to captureMode,
+          "httpPayloadAvailable" to false,
+          "captureSummary" to summaryForReason("websocket_relay"),
+          "tlsClientHelloBytes" to clientHelloBytes,
+          "tlsRecordVersion" to tlsMeta?.recordVersion,
+          "tlsClientVersion" to tlsMeta?.clientVersion,
+          "tlsAlpnProtocols" to if (tlsMeta?.alpnProtocols?.isNotEmpty() == true) tlsMeta.alpnProtocols else null,
+          "tlsSniPresent" to (tlsMeta?.sniPresent ?: !sniHostname.isNullOrBlank()),
+        ) + ClientAttributionHeaders.asCaptureFields(clientAttribution),
+      )
+
+      if (status != 0 && status != 101) {
+        // Non-upgrade response: headers already forwarded; close both sides.
+        runCatching { up.close() }
+        runCatching { clientTls.close() }
+        return MitmOutcome.Success
+      }
+
+      runCatching { clientTls.soTimeout = 0 }
+      runCatching { up.soTimeout = 0 }
+      relayBidirectional(clientTls, up)
+      MitmOutcome.Success
+    } catch (e: Exception) {
+      runCatching { upstream?.close() }
+      runCatching { clientTls.close() }
+      android.util.Log.w("LenswireMITM", "WebSocket relay failed host=$upstreamHost: ${e.message}", e)
+      MitmOutcome.HardFailure(
+        detail = "${e.javaClass.simpleName}: ${e.message ?: "websocket relay failed"}",
+        bypassHost = false,
+        reasonCode = "mitm_error",
+      )
+    }
+  }
+
+  private fun buildHttpRequestBytes(parsed: ParsedRequest, requestTarget: String? = null): ByteArray {
+    val target = requestTarget ?: if (parsed.pathWithQuery.startsWith("/")) {
+      parsed.pathWithQuery
+    } else {
+      "/${parsed.pathWithQuery}"
+    }
+    val sb = StringBuilder()
+    sb.append(parsed.method).append(' ').append(target).append(" HTTP/1.1\r\n")
+    for ((key, value) in parsed.headers) {
+      sb.append(key).append(": ").append(value).append("\r\n")
+    }
+    sb.append("\r\n")
+    val headerBytes = sb.toString().toByteArray(Charsets.ISO_8859_1)
+    return if (parsed.body.isEmpty()) headerBytes else headerBytes + parsed.body
+  }
+
+  private fun readHttpHeaderBlock(input: InputStream, maxBytes: Int = 65_536): ByteArray {
+    val out = ByteArrayOutputStream()
+    while (out.size() < maxBytes) {
+      val b = input.read()
+      if (b < 0) break
+      out.write(b)
+      val bytes = out.toByteArray()
+      val n = bytes.size
+      if (n >= 4 &&
+        bytes[n - 4] == '\r'.code.toByte() &&
+        bytes[n - 3] == '\n'.code.toByte() &&
+        bytes[n - 2] == '\r'.code.toByte() &&
+        bytes[n - 1] == '\n'.code.toByte()
+      ) {
+        break
+      }
+    }
+    return out.toByteArray()
+  }
+
+  private fun parseHttpStatus(headerBlock: ByteArray): Int? {
+    val text = String(headerBlock, Charsets.ISO_8859_1)
+    val firstLine = text.substringBefore("\r\n")
+    val parts = firstLine.split(' ')
+    return parts.getOrNull(1)?.toIntOrNull()
+  }
+
+  private fun parseResponseHeaderMap(headerBlock: ByteArray): Map<String, String> {
+    val text = String(headerBlock, Charsets.ISO_8859_1)
+    val headerEnd = text.indexOf("\r\n\r\n")
+    val headerText = if (headerEnd >= 0) text.substring(0, headerEnd) else text
+    val out = LinkedHashMap<String, String>()
+    headerText.split("\r\n").drop(1).forEach { line ->
+      val idx = line.indexOf(':')
+      if (idx > 0) {
+        out[line.substring(0, idx).trim()] = line.substring(idx + 1).trim()
+      }
+    }
+    return out
   }
 
 }
