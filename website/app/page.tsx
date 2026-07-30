@@ -1,7 +1,11 @@
+import { CompareCell } from '@/components/CompareCell';
+import { DeviceFrame } from '@/components/DeviceFrame';
+import { FeatureIcon } from '@/components/FeatureIcon';
 import { SiteFooter } from '@/components/SiteFooter';
 import { SiteHeader } from '@/components/SiteHeader';
+import { Spotlight } from '@/components/Spotlight';
 import { withBasePath } from '@/lib/basePath';
-import { faqs, features, screens, spotlights } from '@/lib/content';
+import { comparison, faqs, features, screens, spotlights } from '@/lib/content';
 
 export default function HomePage() {
   return (
@@ -114,9 +118,76 @@ export default function HomePage() {
           ))}
         </section>
 
+        {/* Compare */}
+        <section id="compare" className="border-y border-line bg-wash">
+          <div className="mx-auto max-w-5xl px-5 py-20 sm:py-28">
+            <div className="mx-auto max-w-3xl text-center">
+              <h2 className="font-display text-5xl tracking-tight sm:text-6xl">
+                Compared to desktop proxies
+              </h2>
+              <p className="mt-5 text-xl text-muted">
+                Charles, Proxyman, and mitmproxy are excellent on a Mac or PC. Lenswire is built for
+                capture on the phone — VPN MITM, no laptop in the loop.
+              </p>
+            </div>
+            <div className="mt-14 overflow-x-auto overscroll-x-contain [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+              <table className="w-full min-w-[40rem] border-collapse text-left">
+                <thead>
+                  <tr className="border-b border-line">
+                    <th scope="col" className="py-4 pr-4 text-sm font-medium text-muted sm:pr-6">
+                      <span className="sr-only">Criterion</span>
+                    </th>
+                    {comparison.tools.map((tool) => {
+                      const highlight = tool === comparison.highlight;
+                      return (
+                        <th
+                          key={tool}
+                          scope="col"
+                          className={`px-3 py-4 text-center text-base font-semibold tracking-tight sm:px-4 ${
+                            highlight ? 'bg-navy/5 text-navy' : 'text-ink'
+                          }`}
+                        >
+                          {tool}
+                        </th>
+                      );
+                    })}
+                  </tr>
+                </thead>
+                <tbody>
+                  {comparison.rows.map((row) => (
+                    <tr key={row.criterion} className="border-b border-line/80">
+                      <th
+                        scope="row"
+                        className="max-w-[11rem] py-4 pr-4 text-base font-medium tracking-tight text-ink sm:max-w-none sm:pr-6"
+                      >
+                        {row.criterion}
+                      </th>
+                      {row.values.map((value, i) => {
+                        const tool = comparison.tools[i];
+                        const highlight = tool === comparison.highlight;
+                        return (
+                          <td
+                            key={`${row.criterion}-${tool}`}
+                            className={`px-3 py-4 text-center text-base sm:px-4 ${
+                              highlight ? 'bg-navy/5' : ''
+                            }`}
+                          >
+                            <CompareCell value={value} emphasize={highlight} />
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <p className="mt-6 text-sm leading-relaxed text-muted">{comparison.footnote}</p>
+          </div>
+        </section>
+
         {/* Screens — horizontal scroll */}
-        <section id="screens" className="border-t border-line bg-wash py-20 sm:py-28">
-          <div className="mx-auto max-w-5xl px-5">
+        <section id="screens" className="bg-wash pb-20 sm:pb-28">
+          <div className="mx-auto max-w-5xl px-5 pt-20 sm:pt-28">
             <h2 className="font-display text-5xl tracking-tight sm:text-6xl">In the app</h2>
             <p className="mt-5 max-w-xl text-xl text-muted">
               Traffic list, domain drill-down, request/response detail, and overrides.
@@ -182,128 +253,5 @@ export default function HomePage() {
       </main>
       <SiteFooter />
     </>
-  );
-}
-
-function FeatureIcon({ index }: { index: number }) {
-  const common = {
-    width: 32,
-    height: 32,
-    viewBox: '0 0 24 24',
-    fill: 'none',
-    stroke: 'currentColor',
-    strokeWidth: 1.6,
-    strokeLinecap: 'round' as const,
-    strokeLinejoin: 'round' as const,
-    className: 'text-ink',
-    'aria-hidden': true as const,
-  };
-
-  switch (index) {
-    case 0: // VPN / phone
-      return (
-        <svg {...common}>
-          <rect x="7" y="2.5" width="10" height="19" rx="2.5" />
-          <path d="M11 18.5h2" />
-        </svg>
-      );
-    case 1: // lock / HTTPS
-      return (
-        <svg {...common}>
-          <rect x="4.5" y="10" width="15" height="11" rx="2" />
-          <path d="M8 10V7a4 4 0 0 1 8 0v3" />
-        </svg>
-      );
-    case 2: // filter
-      return (
-        <svg {...common}>
-          <path d="M4 5h16l-6 7.5V19l-4 2v-8.5L4 5z" />
-        </svg>
-      );
-    case 3: // code / detail
-      return (
-        <svg {...common}>
-          <path d="M8 7 3.5 12 8 17" />
-          <path d="M16 7l4.5 5L16 17" />
-          <path d="M13 5l-2 14" />
-        </svg>
-      );
-    case 4: // swap / override
-      return (
-        <svg {...common}>
-          <path d="M7 7h11l-3-3" />
-          <path d="M17 17H6l3 3" />
-          <path d="M18 7v4M6 17v-4" />
-        </svg>
-      );
-    default: // shield / privacy
-      return (
-        <svg {...common}>
-          <path d="M12 3 5 6.5v5c0 4.2 2.8 7.8 7 9 4.2-1.2 7-4.8 7-9v-5L12 3z" />
-        </svg>
-      );
-  }
-}
-
-function DeviceFrame({
-  src,
-  alt,
-  priority = false,
-}: {
-  src: string;
-  alt: string;
-  priority?: boolean;
-}) {
-  return (
-    <div className="rounded-[2rem] bg-[#111] p-[7px] shadow-[0_28px_60px_-32px_rgba(11,61,145,0.45)] ring-1 ring-black/10">
-      <div className="overflow-hidden rounded-[1.55rem] bg-black">
-        <img
-          src={withBasePath(src)}
-          alt={alt}
-          width={394}
-          height={860}
-          className="block h-auto w-full"
-          loading={priority ? 'eager' : 'lazy'}
-          fetchPriority={priority ? 'high' : undefined}
-        />
-      </div>
-    </div>
-  );
-}
-
-function Spotlight({
-  eyebrow,
-  title,
-  body,
-  src,
-  alt,
-  reverse = false,
-  wash,
-}: {
-  eyebrow: string;
-  title: string;
-  body: string;
-  src: string;
-  alt: string;
-  reverse?: boolean;
-  wash: string;
-}) {
-  return (
-    <div
-      className={`grid items-center gap-10 lg:grid-cols-2 lg:gap-16 ${reverse ? 'lg:[&>*:first-child]:order-2' : ''}`}
-    >
-      <div>
-        <p className="text-base font-medium tracking-wide text-navy">{eyebrow}</p>
-        <h3 className="mt-3 font-display text-4xl tracking-tight sm:text-5xl">{title}</h3>
-        <p className="mt-5 text-lg leading-relaxed text-muted sm:text-xl">{body}</p>
-      </div>
-      <div
-        className={`mx-auto flex w-full max-w-md justify-center rounded-3xl bg-gradient-to-br ${wash} p-8 sm:p-10`}
-      >
-        <div className="w-[min(16.5rem,78%)]">
-          <DeviceFrame src={src} alt={alt} />
-        </div>
-      </div>
-    </div>
   );
 }

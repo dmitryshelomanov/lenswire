@@ -86,6 +86,39 @@ export const spotlights = [
   },
 ] as const;
 
+export const comparison = {
+  tools: ['Lenswire', 'Charles Proxy', 'Proxyman', 'mitmproxy'] as const,
+  highlight: 'Lenswire' as const,
+  rows: [
+    {
+      criterion: 'Runs on the phone (no desktop)',
+      values: ['yes', 'no', 'no', 'no'] as const,
+    },
+    {
+      criterion: 'iOS + Android',
+      values: ['yes', 'via proxy setup', 'via proxy setup', 'via proxy setup'] as const,
+    },
+    {
+      criterion: 'HTTPS decryption',
+      values: ['yes', 'yes', 'yes', 'yes'] as const,
+    },
+    {
+      criterion: 'Mock / rewrite',
+      values: ['yes', 'yes', 'yes', 'yes'] as const,
+    },
+    {
+      criterion: 'Free & open source',
+      values: ['yes (MIT)', 'paid', 'freemium', 'yes'] as const,
+    },
+    {
+      criterion: 'Traffic stays on-device',
+      values: ['yes', 'desktop host', 'desktop host', 'desktop host'] as const,
+    },
+  ],
+  footnote:
+    'Charles, Proxyman, and mitmproxy (CLI or mitmweb) run on a computer — you point the phone at that proxy. Proxyman started on Mac and also has Windows.',
+} as const;
+
 export const faqs = [
   {
     q: 'Do I need a desktop proxy?',

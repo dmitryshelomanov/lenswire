@@ -3,6 +3,7 @@ import { withBasePath } from '@/lib/basePath';
 
 const nav = [
   { href: '/#features', label: 'Features' },
+  { href: '/#compare', label: 'Compare' },
   { href: '/#screens', label: 'Screens' },
   { href: '/privacy/', label: 'Privacy' },
 ];
