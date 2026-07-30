@@ -110,6 +110,10 @@ class LenswireProxyModule : Module() {
       CertificateManager.pemPath(context)
     }
 
+    Function("getCertificateExportPath") {
+      CertificateManager.exportPath(context)
+    }
+
     AsyncFunction("installCertificate") { promise: Promise ->
       val activity = appContext.currentActivity
       if (activity == null) {
@@ -128,8 +132,16 @@ class LenswireProxyModule : Module() {
       CaptureStore.PROXY_PORT
     }
 
-    Function("getCaptures") {
-      CaptureStore.read(context)
+    Function("getCapturesRevision") {
+      CaptureStore.revision(context)
+    }
+
+    AsyncFunction("getCaptures") {
+      CaptureStore.read(context, summaries = true)
+    }
+
+    AsyncFunction("getCapture") { id: String ->
+      CaptureStore.readOne(context, id)
     }
 
     Function("clearCaptures") {

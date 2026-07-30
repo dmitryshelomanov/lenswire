@@ -84,6 +84,10 @@ public class LenswireProxyModule: Module {
       CertificateManager.shared.pemPath()
     }
 
+    Function("getCertificateExportPath") { () -> String? in
+      CertificateManager.shared.exportPath()
+    }
+
     AsyncFunction("installCertificate") { (promise: Promise) in
       promise.reject(RejectException("CA_INSTALL_FAILED", "On iOS use Install profile"))
     }
@@ -92,8 +96,16 @@ public class LenswireProxyModule: Module {
       Int(LenswireShared.proxyPort)
     }
 
-    Function("getCaptures") { () -> [[String: Any]] in
+    Function("getCapturesRevision") { () -> Int in
+      Int(VPNManager.shared.getCapturesRevision())
+    }
+
+    AsyncFunction("getCaptures") { () -> [[String: Any]] in
       VPNManager.shared.getCaptures()
+    }
+
+    AsyncFunction("getCapture") { (id: String) -> [String: Any]? in
+      VPNManager.shared.getCapture(id: id)
     }
 
     Function("clearCaptures") {

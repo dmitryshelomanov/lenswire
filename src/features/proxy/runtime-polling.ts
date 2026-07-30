@@ -4,11 +4,12 @@ type RuntimePolling = {
 };
 
 export function createRuntimePolling(
-  refresh: () => void,
+  refresh: () => void | Promise<void>,
   shouldRefresh: () => boolean,
   intervalMs = 1200,
 ): RuntimePolling {
   let timer: ReturnType<typeof setInterval> | null = null;
+  let inFlight = false;
 
   function stop(): void {
     if (!timer) return;
@@ -23,8 +24,16 @@ export function createRuntimePolling(
     }
     if (timer) return;
     timer = setInterval(() => {
-      if (!shouldRefresh()) return;
-      refresh();
+      if (!shouldRefresh() || inFlight) return;
+      inFlight = true;
+      Promise.resolve()
+        .then(() => refresh())
+        .catch(() => {
+          // Ignore refresh failures; next tick retries.
+        })
+        .finally(() => {
+          inFlight = false;
+        });
     }, intervalMs);
   }
 

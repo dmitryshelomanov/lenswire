@@ -82,8 +82,16 @@ final class VPNManager {
     }
   }
 
+  func getCapturesRevision() -> Int64 {
+    LenswireShared.capturesRevision()
+  }
+
   func getCaptures() -> [[String: Any]] {
-    LenswireShared.readCaptures()
+    LenswireShared.readCaptures(summaries: true)
+  }
+
+  func getCapture(id: String) -> [String: Any]? {
+    LenswireShared.readCapture(id: id)
   }
 
   func clearCaptures() {

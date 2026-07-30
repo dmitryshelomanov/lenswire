@@ -16,6 +16,10 @@ final class CertificateManager {
     CertificateAuthority.shared.pemPath()
   }
 
+  func exportPath() -> String? {
+    CertificateAuthority.shared.exportPath()
+  }
+
   func mobileConfigInstallUrl() -> String? {
     CertificateAuthority.shared.mobileConfigInstallUrl()
   }

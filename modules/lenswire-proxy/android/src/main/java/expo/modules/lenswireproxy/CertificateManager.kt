@@ -63,6 +63,19 @@ object CertificateManager {
     return file.absolutePath
   }
 
+  /** DER `.cer` for manual Settings install / share. */
+  fun cerPath(context: Context): String? {
+    if (!caCertDerFile(context).exists() || !caKeyPkcs8File(context).exists()) return null
+    val cer = cerFile(context)
+    if (!cer.exists()) {
+      cer.parentFile?.mkdirs()
+      cer.writeBytes(caCertDerFile(context).readBytes())
+    }
+    return cer.absolutePath
+  }
+
+  fun exportPath(context: Context): String? = cerPath(context)
+
   fun installIntent(context: Context): Intent? {
     if (!caCertDerFile(context).exists() || !caKeyPkcs8File(context).exists()) return null
     val cer = cerFile(context)

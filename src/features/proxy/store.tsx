@@ -15,6 +15,7 @@ import {
   ensureProxyRuntime,
   generateCertificate,
   getEntry,
+  loadFullEntry,
   probe,
   proxyRuntime,
   setFilters,
@@ -64,6 +65,7 @@ export function useProxyStatus(): {
 export function useProxyEntries(): {
   entries: TrafficEntry[];
   getEntry: (id: string) => TrafficEntry | undefined;
+  loadFullEntry: (id: string) => Promise<TrafficEntry | null>;
   clear: () => Promise<void>;
 } {
   const entries = useRuntimeSlice(proxyRuntime.entries);
@@ -71,6 +73,7 @@ export function useProxyEntries(): {
   return {
     entries,
     getEntry,
+    loadFullEntry,
     clear,
   };
 }

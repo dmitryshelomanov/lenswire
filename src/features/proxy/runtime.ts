@@ -12,7 +12,9 @@ import type {
 import {
   clearCapture,
   generateCertificate as apiGenerateCertificate,
+  getCapture,
   getCaptures,
+  getCapturesRevision,
   getCertificateInfo,
   getHttpsDecrypt,
   getProxyPort,
@@ -51,9 +53,6 @@ const DEFAULT_CERTIFICATE: CertificateInfo = {
   generatedAt: null,
 };
 
-const ANDROID_DEV_MESSAGE =
-  'Android: System CA required for Chrome decrypt (npm run android:trust-ca on rooted AVD). User CA alone breaks browsing. Pinned apps need separate Frida/LSPosed unpin. SNI MITM + TCP-only SOCKS (QUIC→TCP).';
-
 type ControlSlice = {
   status: ProxyStatus;
   recording: boolean;
@@ -81,7 +80,7 @@ const certificateSlice = createRuntimeSlice<CertificateState>({
 const pinsSlice = createRuntimeSlice<string[]>([]);
 
 let bootstrapped = false;
-let hintShown = false;
+let lastCapturesRevision: number | null = null;
 
 function errorMessage(error: unknown): string {
   if (error instanceof Error && error.message) return error.message;
@@ -129,11 +128,30 @@ function patchControl(patch: Partial<ControlSlice>): void {
   polling.sync(next.status === 'listening');
 }
 
-function refreshCaptures(): void {
-  entriesSlice.set(getCaptures());
-  const nextStatus = getProxyStatus();
-  if (nextStatus !== controlSlice.getSnapshot().status) {
-    patchControl({ status: nextStatus });
+async function refreshCaptures(force = false): Promise<void> {
+  try {
+    const revision = getCapturesRevision();
+    if (
+      !force &&
+      revision !== null &&
+      lastCapturesRevision !== null &&
+      revision === lastCapturesRevision
+    ) {
+      const nextStatus = getProxyStatus();
+      if (nextStatus !== controlSlice.getSnapshot().status) {
+        patchControl({ status: nextStatus });
+      }
+      return;
+    }
+    const next = await getCaptures();
+    lastCapturesRevision = revision;
+    entriesSlice.set(next);
+    const nextStatus = getProxyStatus();
+    if (nextStatus !== controlSlice.getSnapshot().status) {
+      patchControl({ status: nextStatus });
+    }
+  } catch {
+    // Native module may be unavailable; keep previous entries.
   }
 }
 
@@ -156,7 +174,7 @@ function loadPins(): void {
 export function ensureProxyRuntime(): void {
   if (bootstrapped) return;
   bootstrapped = true;
-  refreshCaptures();
+  void refreshCaptures(true);
   certificateSlice.set({
     certificate: getCertificateInfo(),
     busy: false,
@@ -177,11 +195,7 @@ export async function start(): Promise<void> {
   try {
     const next = await startCapture(settingsSlice.getSnapshot());
     patchControl({ status: next, recording: true });
-    refreshCaptures();
-    if (!hintShown && Platform.OS === 'android') {
-      hintShown = true;
-      Alert.alert('Android capture', ANDROID_DEV_MESSAGE);
-    }
+    void refreshCaptures(true);
   } catch (error) {
     const hint =
       Platform.OS === 'android'
@@ -207,7 +221,7 @@ export async function probe(
     await apiSendProbe(type, scheme);
     // Proxy writes captures asynchronously; give it a moment then refresh.
     await new Promise((resolve) => setTimeout(resolve, 400));
-    refreshCaptures();
+    await refreshCaptures(true);
   } catch (error) {
     Alert.alert('Test request failed', errorMessage(error));
   } finally {
@@ -221,6 +235,7 @@ export function toggleRecording(): void {
 
 export async function clear(): Promise<void> {
   clearCapture();
+  lastCapturesRevision = getCapturesRevision();
   entriesSlice.set([]);
 }
 
@@ -258,6 +273,14 @@ export function togglePin(host: string): void {
 
 export function getEntry(id: string): TrafficEntry | undefined {
   return entriesSlice.getSnapshot().find((entry) => entry.id === id);
+}
+
+export async function loadFullEntry(id: string): Promise<TrafficEntry | null> {
+  try {
+    return await getCapture(id);
+  } catch {
+    return getEntry(id) ?? null;
+  }
 }
 
 export const proxyRuntime = {

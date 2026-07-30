@@ -21,6 +21,7 @@ enum LenswireShared {
   static let maxCaptures = 200
   private static let capturesDirName = "captures"
   private static let capturesIndexName = "index.json"
+  private static let capturesRevisionName = "revision"
   private static let capturesLock = NSLock()
 
   static var sharedDefaults: UserDefaults {
@@ -234,14 +235,22 @@ enum LenswireShared {
       index = Array(index.prefix(maxCaptures))
     }
     writeCaptureIndex(dir: dir, index: index)
+    bumpCapturesRevision(dir: dir)
   }
 
-  static func readCaptures() -> [[String: Any]] {
+  static func capturesRevision() -> Int64 {
+    capturesLock.lock()
+    defer { capturesLock.unlock() }
+    migrateCapturesAwayFromDefaults()
+    return readCapturesRevision(dir: capturesDirectory())
+  }
+
+  static func readCaptures(summaries: Bool = false) -> [[String: Any]] {
     capturesLock.lock()
     defer { capturesLock.unlock() }
     migrateCapturesAwayFromDefaults()
     let dir = capturesDirectory()
-    var index = readCaptureIndex(dir: dir)
+    let index = readCaptureIndex(dir: dir)
     var items: [[String: Any]] = []
     var valid: [String] = []
     for name in index {
@@ -250,13 +259,27 @@ enum LenswireShared {
             let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
         continue
       }
-      items.append(obj)
+      items.append(summaries ? toCaptureSummary(obj) : obj)
       valid.append(name)
     }
     if valid.count != index.count {
       writeCaptureIndex(dir: dir, index: valid)
     }
     return items
+  }
+
+  static func readCapture(id: String) -> [String: Any]? {
+    capturesLock.lock()
+    defer { capturesLock.unlock() }
+    migrateCapturesAwayFromDefaults()
+    let trimmed = id.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmed.isEmpty else { return nil }
+    let url = capturesDirectory().appendingPathComponent("\(trimmed).json")
+    guard let data = try? Data(contentsOf: url),
+          let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+      return nil
+    }
+    return obj
   }
 
   static func clearCaptures() {
@@ -270,6 +293,55 @@ enum LenswireShared {
       }
     }
     writeCaptureIndex(dir: dir, index: [])
+    bumpCapturesRevision(dir: dir)
+  }
+
+  static func toCaptureSummary(_ entry: [String: Any]) -> [String: Any] {
+    var out = entry
+    out["requestBody"] = bodyStub(entry["requestBody"])
+    out["responseBody"] = bodyStub(entry["responseBody"])
+    return out
+  }
+
+  private static func bodyStub(_ value: Any?) -> [String: Any] {
+    guard let body = value as? [String: Any] else {
+      return ["kind": "empty", "size": 0]
+    }
+    let size: Int
+    if let number = body["size"] as? NSNumber {
+      size = number.intValue
+    } else if let intValue = body["size"] as? Int {
+      size = intValue
+    } else {
+      size = 0
+    }
+    var stub: [String: Any] = [
+      "kind": body["kind"] as? String ?? "empty",
+      "size": size,
+    ]
+    if body["truncated"] as? Bool == true {
+      stub["truncated"] = true
+    }
+    if body["encodingDecoded"] as? Bool == true {
+      stub["encodingDecoded"] = true
+    }
+    return stub
+  }
+
+  private static func readCapturesRevision(dir: URL) -> Int64 {
+    let url = dir.appendingPathComponent(capturesRevisionName)
+    guard let data = try? Data(contentsOf: url),
+          let text = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
+          let value = Int64(text) else {
+      return 0
+    }
+    return value
+  }
+
+  private static func bumpCapturesRevision(dir: URL) {
+    let next = readCapturesRevision(dir: dir) + 1
+    let url = dir.appendingPathComponent(capturesRevisionName)
+    try? String(next).data(using: .utf8)?.write(to: url, options: .atomic)
   }
 
   private static func capturesDirectory() -> URL {

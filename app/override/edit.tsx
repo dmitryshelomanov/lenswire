@@ -26,6 +26,8 @@ import { Badge } from '@/shared/ui/badge';
 import { Button } from '@/shared/ui/button';
 import { Icon } from '@/shared/ui/icon';
 import { Input } from '@/shared/ui/input';
+import { ScreenHeader } from '@/shared/ui/screen-header';
+import { SwitchRow } from '@/shared/ui/switch-row';
 import { Text } from '@/shared/ui/text';
 
 const KIND_OPTIONS: {
@@ -55,26 +57,57 @@ export default function OverrideEditScreen() {
     entryId?: string;
     kind?: string;
   }>();
-  const { getEntry } = useProxyEntries();
+  const { getEntry, loadFullEntry } = useProxyEntries();
   const { rules, upsertRule, removeRule, ready } = useOverrides();
 
   const kindParam: OverrideKind = params.kind === 'request' ? 'request' : 'response';
   const existing = params.ruleId ? rules.find((item) => item.id === params.ruleId) : undefined;
-  const entry = params.entryId ? getEntry(params.entryId) : undefined;
-
+  const [entry, setEntry] = React.useState(() =>
+    params.entryId ? getEntry(params.entryId) : undefined,
+  );
+  const [entryReady, setEntryReady] = React.useState(!params.entryId);
   const [draft, setDraft] = React.useState<OverrideRule | null>(null);
   const [headerRows, setHeaderRows] = React.useState<HeaderRow[]>([]);
   const [fileName, setFileName] = React.useState<string | null>(null);
   const [pickingFile, setPickingFile] = React.useState(false);
 
-  // Seed editable draft once rules/entry are available (adjust state while rendering).
-  if (ready && !draft) {
+  React.useEffect(() => {
+    let cancelled = false;
+    const entryId = params.entryId;
+    if (!entryId) {
+      queueMicrotask(() => {
+        if (cancelled) return;
+        setEntry(undefined);
+        setEntryReady(true);
+      });
+      return;
+    }
+    queueMicrotask(() => {
+      if (cancelled) return;
+      setEntryReady(false);
+      setEntry(getEntry(entryId));
+    });
+    void loadFullEntry(entryId).then((full) => {
+      queueMicrotask(() => {
+        if (cancelled) return;
+        setEntry(full ?? undefined);
+        setEntryReady(true);
+      });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [params.entryId, getEntry, loadFullEntry]);
+
+  React.useEffect(() => {
+    if (!ready || !entryReady || draft) return;
     const seeded = seedOverrideDraft(existing, entry, kindParam);
-    if (seeded) {
+    if (!seeded) return;
+    queueMicrotask(() => {
       setDraft(seeded.draft);
       setHeaderRows(seeded.headerRows);
-    }
-  }
+    });
+  }, [ready, entryReady, draft, existing, entry, kindParam]);
 
   const setKind = (kind: OverrideKind) => {
     if (!draft || draft.kind === kind) return;
@@ -142,17 +175,16 @@ export default function OverrideEditScreen() {
     }
   };
 
-  if (!ready || !draft) {
+  if (!ready || !entryReady || !draft) {
     return (
       <SafeAreaView className="flex-1 bg-background">
-        <View className="border-border flex-row items-center gap-2 border-b px-4 py-3">
-          <Button variant="ghost" size="icon" onPress={() => router.back()}>
-            <Icon as={ArrowLeft} className="text-foreground" size={18} />
-          </Button>
-          <Text className="text-lg font-semibold">Override</Text>
-        </View>
+        <ScreenHeader
+          title="Override"
+          onBack={() => router.back()}
+          backIcon={<Icon as={ArrowLeft} className="text-foreground" size={18} />}
+        />
         <Text className="text-muted-foreground p-4">
-          {ready
+          {ready && entryReady
             ? 'Create an override from a captured request, or open an existing rule.'
             : 'Loading…'}
         </Text>
@@ -183,20 +215,21 @@ export default function OverrideEditScreen() {
 
   return (
     <SafeAreaView className="flex-1 bg-background">
-      <View className="border-border flex-row items-center gap-2 border-b px-4 py-3">
-        <Button variant="ghost" size="icon" onPress={() => router.back()}>
-          <Icon as={ArrowLeft} className="text-foreground" size={18} />
-        </Button>
-        <Text className="flex-1 text-lg font-semibold">
-          {existing ? 'Edit override' : 'New override'}
-        </Text>
-        <Badge label={kindMeta.short} variant={isResponse ? 'warning' : 'info'} />
-        {existing ? (
-          <Button variant="ghost" size="icon" onPress={onDelete} accessibilityLabel="Delete">
-            <Icon as={Trash2} className="text-destructive" size={18} />
-          </Button>
-        ) : null}
-      </View>
+      <ScreenHeader
+        title={existing ? 'Edit override' : 'New override'}
+        onBack={() => router.back()}
+        backIcon={<Icon as={ArrowLeft} className="text-foreground" size={18} />}
+        right={
+          <View className="flex-row items-center gap-1">
+            <Badge label={kindMeta.short} variant={isResponse ? 'warning' : 'info'} />
+            {existing ? (
+              <Button variant="ghost" size="icon" onPress={onDelete} accessibilityLabel="Delete">
+                <Icon as={Trash2} className="text-destructive" size={18} />
+              </Button>
+            ) : null}
+          </View>
+        }
+      />
 
       <ScrollView
         className="flex-1"
@@ -213,51 +246,14 @@ export default function OverrideEditScreen() {
         </Section>
 
         <Section title="Kind">
-          <View className="bg-muted/50 border-border flex-row gap-1 rounded-md border p-1">
-            {KIND_OPTIONS.map((option) => {
-              const selected = draft.kind === option.value;
-              return (
-                <Pressable
-                  key={option.value}
-                  onPress={() => setKind(option.value)}
-                  className={`flex-1 items-center rounded-md px-3 py-2 ${
-                    selected ? 'bg-background border-border border' : ''
-                  }`}
-                >
-                  <Text
-                    className={`text-sm ${
-                      selected ? 'text-foreground font-medium' : 'text-muted-foreground'
-                    }`}
-                  >
-                    {option.label}
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </View>
-          <Text variant="muted" className="mt-2 text-xs">
-            {kindMeta.hint}
-          </Text>
+          <OverrideKindPicker kind={draft.kind} onChange={setKind} hint={kindMeta.hint} />
         </Section>
 
         <Section title="Enabled">
-          <Pressable
-            onPress={() => setDraft((prev) => (prev ? { ...prev, enabled: !prev.enabled } : prev))}
-            className="border-border bg-background flex-row items-center justify-between rounded-md border px-3 py-3"
-          >
-            <Text>{draft.enabled ? 'On' : 'Off'}</Text>
-            <View
-              className={`h-6 w-11 justify-center rounded-full px-0.5 ${
-                draft.enabled ? 'bg-emerald-500/80' : 'bg-muted'
-              }`}
-            >
-              <View
-                className={`bg-background h-5 w-5 rounded-full ${
-                  draft.enabled ? 'self-end' : 'self-start'
-                }`}
-              />
-            </View>
-          </Pressable>
+          <SwitchRow
+            value={draft.enabled}
+            onToggle={() => setDraft((prev) => (prev ? { ...prev, enabled: !prev.enabled } : prev))}
+          />
         </Section>
 
         {isResponse ? (
@@ -359,5 +355,45 @@ export default function OverrideEditScreen() {
         </Button>
       </View>
     </SafeAreaView>
+  );
+}
+
+function OverrideKindPicker({
+  kind,
+  onChange,
+  hint,
+}: {
+  kind: OverrideKind;
+  onChange: (kind: OverrideKind) => void;
+  hint: string;
+}) {
+  return (
+    <>
+      <View className="bg-muted/50 border-border flex-row gap-1 rounded-md border p-1">
+        {KIND_OPTIONS.map((option) => {
+          const selected = kind === option.value;
+          return (
+            <Pressable
+              key={option.value}
+              onPress={() => onChange(option.value)}
+              className={`flex-1 items-center rounded-md px-3 py-2 ${
+                selected ? 'bg-background border-border border' : ''
+              }`}
+            >
+              <Text
+                className={`text-sm ${
+                  selected ? 'text-foreground font-medium' : 'text-muted-foreground'
+                }`}
+              >
+                {option.label}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </View>
+      <Text variant="muted" className="mt-2 text-xs">
+        {hint}
+      </Text>
+    </>
   );
 }

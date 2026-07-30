@@ -17,9 +17,12 @@ declare class LenswireProxyModule extends NativeModule {
   getCertificateInfo(): NativeCertificateInfo;
   getCertificateInstallUrl(): string | null;
   getCertificatePemPath(): string | null;
+  getCertificateExportPath(): string | null;
   installCertificate(): Promise<void>;
   getProxyPort(): number;
-  getCaptures(): NativeTrafficEntry[];
+  getCapturesRevision(): number;
+  getCaptures(): Promise<NativeTrafficEntry[]>;
+  getCapture(id: string): Promise<NativeTrafficEntry | null>;
   clearCaptures(): void;
   setHttpsDecrypt(enabled: boolean): void;
   getHttpsDecrypt(): boolean;

@@ -34,6 +34,26 @@ describe('mapNativeCapture', () => {
     expect(entry.tlsSniPresent).toBe(false);
     expect(entry.tlsAlpnProtocols).toEqual(['h2', '7']);
   });
+
+  it('accepts body stubs without text or preview payloads', () => {
+    const entry = mapNativeCapture({
+      id: 'stub',
+      requestBody: { kind: 'json', size: 11, truncated: true },
+      responseBody: { kind: 'image', size: 2048, encodingDecoded: true },
+    });
+
+    expect(entry.requestBody).toEqual({
+      kind: 'json',
+      text: '',
+      size: 11,
+      truncated: true,
+    });
+    expect(entry.responseBody).toEqual({
+      kind: 'image',
+      size: 2048,
+      encodingDecoded: true,
+    });
+  });
 });
 
 describe('asOverrideRule', () => {

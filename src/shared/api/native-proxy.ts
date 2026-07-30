@@ -33,10 +33,26 @@ export function getProxyPort(): number {
   return LenswireProxy.getProxyPort();
 }
 
-export function getCaptures(): TrafficEntry[] {
-  return LenswireProxy.getCaptures().map((item) =>
-    mapNativeCapture(item as Record<string, unknown>),
-  );
+export function getCapturesRevision(): number | null {
+  try {
+    const value = LenswireProxy.getCapturesRevision();
+    if (value == null) return null;
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function getCaptures(): Promise<TrafficEntry[]> {
+  const items = await LenswireProxy.getCaptures();
+  return items.map((item) => mapNativeCapture(item as Record<string, unknown>));
+}
+
+export async function getCapture(id: string): Promise<TrafficEntry | null> {
+  const item = await LenswireProxy.getCapture(id);
+  if (!item) return null;
+  return mapNativeCapture(item as Record<string, unknown>);
 }
 
 export function getProxyStatus(): ProxyStatus {
@@ -91,22 +107,26 @@ export function clearCapture(): void {
   LenswireProxy.clearCaptures();
 }
 
-export async function generateCertificate(): Promise<CertificateInfo> {
-  const info = await LenswireProxy.generateCertificate();
+function mapCertificateInfo(info: {
+  status?: unknown;
+  fingerprint?: string | null;
+  generatedAt?: number | null;
+}): CertificateInfo {
   return {
     status: info.status === 'ready' ? 'ready' : 'not_generated',
-    fingerprint: info.fingerprint,
-    generatedAt: info.generatedAt,
+    fingerprint: info.fingerprint ?? null,
+    generatedAt: info.generatedAt ?? null,
   };
+}
+
+export async function generateCertificate(): Promise<CertificateInfo> {
+  const info = await LenswireProxy.generateCertificate();
+  return mapCertificateInfo(info);
 }
 
 export function getCertificateInfo(): CertificateInfo {
   const info = LenswireProxy.getCertificateInfo();
-  return {
-    status: info.status === 'ready' ? 'ready' : 'not_generated',
-    fingerprint: info.fingerprint,
-    generatedAt: info.generatedAt,
-  };
+  return mapCertificateInfo(info);
 }
 
 export function getCertificateInstallUrl(): string | null {
@@ -115,6 +135,11 @@ export function getCertificateInstallUrl(): string | null {
 
 export function getCertificatePemPath(): string | null {
   return LenswireProxy.getCertificatePemPath();
+}
+
+/** Android: DER `.cer`; iOS: Documents PEM — for share / manual install. */
+export function getCertificateExportPath(): string | null {
+  return LenswireProxy.getCertificateExportPath();
 }
 
 export async function installCertificate(): Promise<void> {

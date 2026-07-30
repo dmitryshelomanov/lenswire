@@ -79,6 +79,23 @@ final class CertificateAuthority {
     return LenswireShared.caPemURL.path
   }
 
+  /// Documents PEM for share / Save to Files.
+  func exportPath() -> String? {
+    guard isReady() else { return nil }
+    let docs = LenswireShared.documentsCaPemURL
+    if !FileManager.default.fileExists(atPath: docs.path) {
+      if let pem = try? String(contentsOf: LenswireShared.caPemURL, encoding: .utf8) {
+        try? pem.write(to: docs, atomically: true, encoding: .utf8)
+      } else if let der = try? Data(contentsOf: LenswireShared.caCertURL) {
+        let pem = X509.pemCertificate(der: der)
+        try? pem.write(to: LenswireShared.caPemURL, atomically: true, encoding: .utf8)
+        try? pem.write(to: docs, atomically: true, encoding: .utf8)
+      }
+    }
+    guard FileManager.default.fileExists(atPath: docs.path) else { return nil }
+    return docs.path
+  }
+
   func mobileConfigInstallUrl() -> String? {
     guard isReady(), let der = try? Data(contentsOf: LenswireShared.caCertURL) else {
       return nil

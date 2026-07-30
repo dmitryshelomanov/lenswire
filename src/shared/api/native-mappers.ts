@@ -68,7 +68,7 @@ function asBody(value: unknown): TrafficBody {
   if (kind === 'json' || kind === 'text') {
     return {
       kind,
-      text: asString(raw.text),
+      text: typeof raw.text === 'string' ? raw.text : '',
       size,
       truncated: truncated || undefined,
       encodingDecoded: encodingDecoded || undefined,

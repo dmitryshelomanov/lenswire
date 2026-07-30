@@ -13,6 +13,7 @@ object CaptureStore {
   private const val MAX = 200
   private const val DIR_NAME = "captures"
   private const val INDEX_NAME = "index.json"
+  private const val REVISION_NAME = "revision"
 
   const val PROXY_PORT = 9090
 
@@ -40,10 +41,17 @@ object CaptureStore {
       File(dir, name).delete()
     }
     writeIndex(dir, next)
+    bumpRevision(dir)
   }
 
   @Synchronized
-  fun read(context: Context): List<Map<String, Any?>> {
+  fun revision(context: Context): Long {
+    migrateAwayFromPrefs(context)
+    return readRevision(capturesDir(context))
+  }
+
+  @Synchronized
+  fun read(context: Context, summaries: Boolean = false): List<Map<String, Any?>> {
     migrateAwayFromPrefs(context)
     val dir = capturesDir(context)
     val index = readIndex(dir)
@@ -56,7 +64,8 @@ object CaptureStore {
       if (!file.isFile) continue
       val text = runCatching { file.readText() }.getOrNull() ?: continue
       val obj = runCatching { JSONObject(text) }.getOrNull() ?: continue
-      out.add(fromJsonObject(obj))
+      val map = fromJsonObject(obj)
+      out.add(if (summaries) toSummary(map) else map)
       valid.put(name)
     }
     if (valid.length() != index.length()) {
@@ -67,11 +76,24 @@ object CaptureStore {
   }
 
   @Synchronized
+  fun readOne(context: Context, id: String): Map<String, Any?>? {
+    migrateAwayFromPrefs(context)
+    val trimmed = id.trim()
+    if (trimmed.isEmpty()) return null
+    val file = File(capturesDir(context), "$trimmed.json")
+    if (!file.isFile) return null
+    val text = runCatching { file.readText() }.getOrNull() ?: return null
+    val obj = runCatching { JSONObject(text) }.getOrNull() ?: return null
+    return fromJsonObject(obj)
+  }
+
+  @Synchronized
   fun clear(context: Context) {
     migrateAwayFromPrefs(context)
     val dir = capturesDir(context)
     dir.listFiles()?.forEach { it.delete() }
     writeIndex(dir, JSONArray())
+    bumpRevision(dir)
   }
 
   private fun capturesDir(context: Context): File {
@@ -90,6 +112,17 @@ object CaptureStore {
     writeTextAtomically(File(dir, INDEX_NAME), index.toString())
   }
 
+  private fun readRevision(dir: File): Long {
+    val file = File(dir, REVISION_NAME)
+    if (!file.isFile) return 0L
+    return runCatching { file.readText().trim().toLong() }.getOrDefault(0L)
+  }
+
+  private fun bumpRevision(dir: File) {
+    val next = readRevision(dir) + 1L
+    writeTextAtomically(File(dir, REVISION_NAME), next.toString())
+  }
+
   internal fun buildNextIndex(latestFileName: String, previous: JSONArray, maxItems: Int): JSONArray {
     val next = JSONArray()
     next.put(latestFileName)
@@ -100,6 +133,30 @@ object CaptureStore {
       next.put(name)
     }
     return next
+  }
+
+  internal fun toSummary(entry: Map<String, Any?>): Map<String, Any?> {
+    val out = HashMap(entry)
+    out["requestBody"] = bodyStub(entry["requestBody"])
+    out["responseBody"] = bodyStub(entry["responseBody"])
+    return out
+  }
+
+  private fun bodyStub(value: Any?): Map<String, Any?> {
+    if (value !is Map<*, *>) {
+      return mapOf("kind" to "empty", "size" to 0)
+    }
+    val kind = value["kind"]?.toString() ?: "empty"
+    val size = when (val raw = value["size"]) {
+      is Number -> raw.toLong()
+      else -> runCatching { raw?.toString()?.toLong() }.getOrDefault(0L)
+    }
+    val stub = HashMap<String, Any?>()
+    stub["kind"] = kind
+    stub["size"] = size
+    if (value["truncated"] == true) stub["truncated"] = true
+    if (value["encodingDecoded"] == true) stub["encodingDecoded"] = true
+    return stub
   }
 
   private fun writeTextAtomically(target: File, text: String) {
@@ -125,8 +182,9 @@ object CaptureStore {
   }
 
   private fun cleanupOrphans(dir: File, index: JSONArray) {
-    val keep = HashSet<String>(index.length() + 1)
+    val keep = HashSet<String>(index.length() + 2)
     keep.add(INDEX_NAME)
+    keep.add(REVISION_NAME)
     for (i in 0 until index.length()) {
       val name = index.optString(i)
       if (!name.isNullOrBlank()) keep.add(name)
