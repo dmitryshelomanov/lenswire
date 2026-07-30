@@ -80,6 +80,7 @@
     "expo-font": "~57.0.1",
     "expo-linking": "~57.0.4",
     "expo-router": "~57.0.8",
+    "expo-sharing": "~57.0.8",
     "expo-status-bar": "~57.0.1",
     "lenswire-proxy": "file:./modules/lenswire-proxy",
     "lucide-react-native": "^1.27.0",

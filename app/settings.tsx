@@ -4,7 +4,9 @@ import * as React from 'react';
 import { Platform, Pressable, ScrollView, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { useAndroidCaContext } from '@/features/proxy/hooks/use-android-ca-context';
 import { useOverrides } from '@/features/proxy/hooks/use-overrides';
+import { androidChromeWarning } from '@/features/proxy/lib/android-ca-guidance';
 import { useProxySettings, useProxyStatus } from '@/features/proxy/store';
 import { type ThemePreference, useThemeStore } from '@/features/theme/store';
 import { getDiagnostics } from '@/shared/api/native-proxy';
@@ -12,6 +14,8 @@ import { Badge } from '@/shared/ui/badge';
 import { Button } from '@/shared/ui/button';
 import { Icon } from '@/shared/ui/icon';
 import { Input } from '@/shared/ui/input';
+import { ScreenHeader } from '@/shared/ui/screen-header';
+import { SwitchRow } from '@/shared/ui/switch-row';
 import { Text } from '@/shared/ui/text';
 
 const THEME_OPTIONS: { value: ThemePreference; label: string }[] = [
@@ -26,24 +30,18 @@ export default function SettingsScreen() {
   const { settings, updateSettings } = useProxySettings();
   const { themePreference, setThemePreference } = useThemeStore();
   const { rules } = useOverrides();
+  const { showEmulatorTrustCa } = useAndroidCaContext();
   const listening = status === 'listening';
   const enabledOverrides = rules.filter((rule) => rule.enabled).length;
-  const diagnostics = React.useMemo(() => {
-    try {
-      return getDiagnostics();
-    } catch {
-      return { status: 'stopped', lastError: null, runtime: null };
-    }
-  }, [status, settings.httpsDecrypt]);
+  const diagnostics = safeDiagnostics();
 
   return (
     <SafeAreaView className="flex-1 bg-background">
-      <View className="border-border flex-row items-center gap-2 border-b px-4 py-3">
-        <Button variant="ghost" size="icon" onPress={() => router.back()}>
-          <Icon as={ArrowLeft} className="text-foreground" size={18} />
-        </Button>
-        <Text className="text-lg font-semibold">Settings</Text>
-      </View>
+      <ScreenHeader
+        title="Settings"
+        onBack={() => router.back()}
+        backIcon={<Icon as={ArrowLeft} className="text-foreground" size={18} />}
+      />
 
       <ScrollView className="flex-1" contentContainerClassName="gap-6 px-4 py-6 sm:px-6">
         {listening ? (
@@ -145,23 +143,12 @@ export default function SettingsScreen() {
         </Field>
 
         <Field label="HTTPS decryption">
-          <Pressable
-            onPress={() => updateSettings({ httpsDecrypt: !settings.httpsDecrypt })}
-            className="border-border bg-background flex-row items-center justify-between rounded-md border px-3 py-3"
-          >
-            <Text>{settings.httpsDecrypt ? 'Enabled' : 'Disabled'}</Text>
-            <View
-              className={`h-6 w-11 justify-center rounded-full px-0.5 ${
-                settings.httpsDecrypt ? 'bg-emerald-500/80' : 'bg-muted'
-              }`}
-            >
-              <View
-                className={`bg-background h-5 w-5 rounded-full ${
-                  settings.httpsDecrypt ? 'self-end' : 'self-start'
-                }`}
-              />
-            </View>
-          </Pressable>
+          <SwitchRow
+            value={settings.httpsDecrypt}
+            onLabel="Enabled"
+            offLabel="Disabled"
+            onToggle={() => updateSettings({ httpsDecrypt: !settings.httpsDecrypt })}
+          />
           <Text variant="muted" className="mt-2">
             When enabled, the proxy uses the Lenswire CA to decrypt HTTPS. Requires CA install on
             the device. Certificate-pinned apps stay tunnel-only — unpin separately with Frida /
@@ -170,15 +157,11 @@ export default function SettingsScreen() {
           {Platform.OS === 'android' && settings.httpsDecrypt ? (
             <View className="border-border bg-amber-500/10 mt-3 gap-2 rounded-md border p-3">
               <Text className="font-medium text-amber-700 dark:text-amber-300">
-                Chrome needs System CA
+                {showEmulatorTrustCa ? 'Chrome needs System CA' : 'Chrome ignores User CAs'}
               </Text>
+              <Text variant="muted">{androidChromeWarning(showEmulatorTrustCa)}</Text>
               <Text variant="muted">
-                With only a User CA, Android 7+ browsers show certificate warnings and pages stop
-                loading. Run `npm run android:trust-ca` on a rooted AVD (no Google Play), or turn
-                decryption off to restore browsing.
-              </Text>
-              <Text variant="muted">
-                System CA ≠ unpinning. Google and many native apps still reject MITM until you unpin
+                CA trust ≠ unpinning. Google and many native apps still reject MITM until you unpin
                 outside Lenswire (root + Frida / objection / LSPosed).
               </Text>
               <Pressable
@@ -236,15 +219,22 @@ export default function SettingsScreen() {
             )}
           </View>
           <Text variant="muted" className="mt-2">
-            Capability matrix: HTTP capture yes; Chrome HTTPS needs System CA (`npm run
-            android:trust-ca`); pinned apps need external Frida/LSPosed unpin and may stay
-            tunnel-only. SOCKS is TCP-only (`quicForcedToTcp`) so Chrome QUIC falls back to TCP
-            HTTPS.
+            {showEmulatorTrustCa
+              ? 'Capability matrix: HTTP capture yes; Chrome HTTPS needs System CA (`npm run android:trust-ca` on this emulator); pinned apps need external Frida/LSPosed unpin and may stay tunnel-only. SOCKS is TCP-only (`quicForcedToTcp`) so Chrome QUIC falls back to TCP HTTPS.'
+              : 'Capability matrix: HTTP capture yes; Chrome ignores User CAs on Android 7+; pinned apps need external Frida/LSPosed unpin and may stay tunnel-only. SOCKS is TCP-only (`quicForcedToTcp`) so Chrome QUIC falls back to TCP HTTPS.'}
           </Text>
         </Field>
       </ScrollView>
     </SafeAreaView>
   );
+}
+
+function safeDiagnostics() {
+  try {
+    return getDiagnostics();
+  } catch {
+    return { status: 'stopped', lastError: null, runtime: null };
+  }
 }
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
