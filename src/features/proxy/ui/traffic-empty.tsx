@@ -12,10 +12,8 @@ type Props = {
 };
 
 export function TrafficEmptyState({ kind, filteredHint = 'traffic' }: Props) {
-  const { start, recording, probe, probing, status } = useProxyStatus();
+  const { start, recording } = useProxyStatus();
   const { isAndroid, showEmulatorTrustCa } = useAndroidCaContext();
-  const listening = status === 'listening';
-  const showProbe = listening;
 
   if (kind === 'stopped') {
     return (
@@ -36,9 +34,6 @@ export function TrafficEmptyState({ kind, filteredHint = 'traffic' }: Props) {
       isAndroid={isAndroid}
       showEmulatorTrustCa={showEmulatorTrustCa}
       recording={recording}
-      showProbe={showProbe}
-      probing={probing}
-      onProbe={() => void probe()}
     />
   );
 }

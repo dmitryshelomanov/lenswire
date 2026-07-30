@@ -1,5 +1,4 @@
 import { Pause, Play, Search, Trash2 } from 'lucide-react-native';
-import * as React from 'react';
 import { View } from 'react-native';
 
 import { Button } from '@/shared/ui/button';
@@ -13,7 +12,6 @@ import type { MethodFilterValue, SchemeFilterValue } from '../../lib/traffic-too
 import { useProxyEntries, useProxyFilters, useProxyStatus } from '../../store';
 import { FilterSelect } from './filter-select';
 import { MoreFilters } from './more-filters';
-import { ProbeTypeModal } from './probe-type-modal';
 
 type Props = {
   showControls?: boolean;
@@ -21,10 +19,9 @@ type Props = {
 };
 
 export function TrafficToolbar({ showControls = true, showFilters = true }: Props) {
-  const { status, recording, start, stop, toggleRecording, probe, probing } = useProxyStatus();
+  const { status, recording, start, stop, toggleRecording } = useProxyStatus();
   const { clear } = useProxyEntries();
   const { filters, setFilters } = useProxyFilters();
-  const [probePickerOpen, setProbePickerOpen] = React.useState(false);
   const listening = status === 'listening';
   const showToolbar = showControls || showFilters;
 
@@ -48,15 +45,6 @@ export function TrafficToolbar({ showControls = true, showFilters = true }: Prop
             <Text>{listening ? 'Stop' : 'Start'}</Text>
           </Button>
 
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={!listening || probing}
-            onPress={() => setProbePickerOpen(true)}
-          >
-            <Text>{probing ? 'Sending…' : 'Send test request'}</Text>
-          </Button>
-
           <Button variant="outline" size="sm" disabled={!listening} onPress={toggleRecording}>
             <Icon as={recording ? Pause : Play} className="text-foreground" size={14} />
             <Text>{recording ? 'Pause' : 'Resume'}</Text>
@@ -68,15 +56,6 @@ export function TrafficToolbar({ showControls = true, showFilters = true }: Prop
           </Button>
         </View>
       ) : null}
-
-      <ProbeTypeModal
-        open={probePickerOpen}
-        onClose={() => setProbePickerOpen(false)}
-        onSelect={(type, nextScheme) => {
-          setProbePickerOpen(false);
-          void probe(type, nextScheme);
-        }}
-      />
 
       {showFilters ? (
         <>

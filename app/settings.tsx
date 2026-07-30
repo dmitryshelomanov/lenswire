@@ -1,5 +1,5 @@
 import { useRouter } from 'expo-router';
-import { ArrowLeft, ChevronRight, FileDiff } from 'lucide-react-native';
+import { ArrowLeft, ChevronRight, FileDiff, Send } from 'lucide-react-native';
 import * as React from 'react';
 import { Platform, Pressable, ScrollView, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -8,6 +8,7 @@ import { useAndroidCaContext } from '@/features/proxy/hooks/use-android-ca-conte
 import { useOverrides } from '@/features/proxy/hooks/use-overrides';
 import { androidChromeWarning } from '@/features/proxy/lib/android-ca-guidance';
 import { useProxySettings, useProxyStatus } from '@/features/proxy/store';
+import { ProbeTypeModal } from '@/features/proxy/ui/traffic-toolbar/probe-type-modal';
 import { type ThemePreference, useThemeStore } from '@/features/theme/store';
 import { getDiagnostics } from '@/shared/api/native-proxy';
 import { Badge } from '@/shared/ui/badge';
@@ -26,11 +27,12 @@ const THEME_OPTIONS: { value: ThemePreference; label: string }[] = [
 
 export default function SettingsScreen() {
   const router = useRouter();
-  const { status } = useProxyStatus();
+  const { status, probe, probing } = useProxyStatus();
   const { settings, updateSettings } = useProxySettings();
   const { themePreference, setThemePreference } = useThemeStore();
   const { rules } = useOverrides();
   const { showEmulatorTrustCa } = useAndroidCaContext();
+  const [probePickerOpen, setProbePickerOpen] = React.useState(false);
   const listening = status === 'listening';
   const enabledOverrides = rules.filter((rule) => rule.enabled).length;
   const diagnostics = safeDiagnostics();
@@ -116,6 +118,41 @@ export default function SettingsScreen() {
             />
           </Button>
         </View>
+
+        <View className="border-border bg-muted/40 rounded-lg border p-4">
+          <View className="flex-row items-start gap-3">
+            <View className="bg-background mt-0.5 rounded-md p-2">
+              <Icon as={Send} className="text-foreground" size={20} />
+            </View>
+            <View className="min-w-0 flex-1 gap-1">
+              <Text className="text-base font-semibold">Send test request</Text>
+              <Text variant="muted">
+                Send a synthetic request through the local proxy (127.0.0.1) so it appears in the
+                traffic list. Start capture first.
+              </Text>
+            </View>
+          </View>
+          <Button
+            className="mt-4"
+            variant="outline"
+            disabled={!listening || probing}
+            onPress={() => setProbePickerOpen(true)}
+          >
+            <Text className="font-medium">{probing ? 'Sending…' : 'Send test request'}</Text>
+          </Button>
+        </View>
+
+        <ProbeTypeModal
+          open={probePickerOpen}
+          onClose={() => setProbePickerOpen(false)}
+          onSelect={(type, nextScheme) => {
+            setProbePickerOpen(false);
+            void (async () => {
+              await probe(type, nextScheme);
+              router.replace('/');
+            })();
+          }}
+        />
 
         <Field label="Listen host">
           <Input
