@@ -16,6 +16,7 @@ import {
   useProxyPins,
   useProxyStatus,
 } from '@/features/proxy/store';
+import { SessionWaterfall } from '@/features/proxy/ui/session-waterfall';
 import { TrafficEmptyState } from '@/features/proxy/ui/traffic-empty';
 import { TrafficRow } from '@/features/proxy/ui/traffic-row';
 import { TrafficToolbar } from '@/features/proxy/ui/traffic-toolbar';
@@ -29,6 +30,8 @@ type TrafficListItem = {
   collapsedCount: number;
 };
 
+type ViewMode = 'list' | 'waterfall';
+
 export default function DomainScreen() {
   const { host: encodedHost } = useLocalSearchParams<{ host: string }>();
   const router = useRouter();
@@ -38,6 +41,7 @@ export default function DomainScreen() {
   const { pinnedHosts, togglePin } = useProxyPins();
   const { copied, copy } = useCopiedFeedback();
   const [hideConnect, setHideConnect] = React.useState(false);
+  const [viewMode, setViewMode] = React.useState<ViewMode>('list');
   const host = decodeHostParam(encodedHost);
   const pinned = pinnedHosts.includes(host);
   const summary = React.useMemo(() => summarizeHost(entries, host), [entries, host]);
@@ -63,8 +67,9 @@ export default function DomainScreen() {
     filters.overriddenOnly ||
     hideConnect;
 
+  const visibleCount = viewMode === 'waterfall' ? withoutConnect.length : compacted.length;
   const emptyKind = resolveTrafficEmptyKind({
-    visibleCount: compacted.length,
+    visibleCount,
     hasTraffic: entries.some((e) => e.host === host),
     status,
     hasActiveFilters,
@@ -132,13 +137,27 @@ export default function DomainScreen() {
           </View>
         ) : null}
 
-        <View className="mt-3">
+        <View className="mt-3 flex-row flex-wrap items-center gap-2">
           <Button
             variant={hideConnect ? 'secondary' : 'outline'}
             size="sm"
             onPress={() => setHideConnect((v) => !v)}
           >
             <Text>{hideConnect ? 'Showing without CONNECT' : 'Hide CONNECT'}</Text>
+          </Button>
+          <Button
+            variant={viewMode === 'list' ? 'secondary' : 'outline'}
+            size="sm"
+            onPress={() => setViewMode('list')}
+          >
+            <Text>List</Text>
+          </Button>
+          <Button
+            variant={viewMode === 'waterfall' ? 'secondary' : 'outline'}
+            size="sm"
+            onPress={() => setViewMode('waterfall')}
+          >
+            <Text>Waterfall</Text>
           </Button>
         </View>
       </View>
@@ -147,6 +166,8 @@ export default function DomainScreen() {
 
       {emptyKind ? (
         <TrafficEmptyState kind={emptyKind} />
+      ) : viewMode === 'waterfall' ? (
+        <SessionWaterfall entries={withoutConnect} />
       ) : (
         <FlatList
           data={compacted}
