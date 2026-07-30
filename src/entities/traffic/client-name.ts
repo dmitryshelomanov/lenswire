@@ -96,4 +96,3 @@ export function clientAttributionLabelOfEntry(entry: TrafficEntry): string {
 
 // Exported for unit tests.
 export { clientNameFromUserAgent };
-

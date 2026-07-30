@@ -7,18 +7,18 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import type { OverrideKind, OverrideRule } from '@/entities/traffic/types';
 import {
-  guessContentType,
-  headersFromRows,
-  newHeaderRowId,
-  rowsFromHeaders,
-  seedOverrideDraft,
-  type HeaderRow,
-} from '@/features/proxy/lib/override-editor';
-import {
   contentTypeFromHeaders,
   headersFromEntry,
   useOverrides,
 } from '@/features/proxy/hooks/use-overrides';
+import {
+  guessContentType,
+  type HeaderRow,
+  headersFromRows,
+  newHeaderRowId,
+  rowsFromHeaders,
+  seedOverrideDraft,
+} from '@/features/proxy/lib/override-editor';
 import { useProxyEntries } from '@/features/proxy/store';
 import { HeaderRowsEditor } from '@/features/proxy/ui/override/header-rows-editor';
 import { Section } from '@/features/proxy/ui/request-detail/section';

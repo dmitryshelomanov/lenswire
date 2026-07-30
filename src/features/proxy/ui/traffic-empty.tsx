@@ -10,9 +10,11 @@ import { useProxyStatus } from '../store';
 
 type Props = {
   kind: 'stopped' | 'empty' | 'filtered';
+  /** When `domain`, filtered copy refers to domain/client search instead of method/status. */
+  filteredHint?: 'traffic' | 'domain';
 };
 
-export function TrafficEmptyState({ kind }: Props) {
+export function TrafficEmptyState({ kind, filteredHint = 'traffic' }: Props) {
   const { start, recording, probe, probing, status } = useProxyStatus();
   const listening = status === 'listening';
   const isAndroid = Platform.OS === 'android';
@@ -76,9 +78,13 @@ export function TrafficEmptyState({ kind }: Props) {
         <View className="bg-muted mb-6 rounded-full p-4">
           <Icon as={SearchX} className="text-muted-foreground" size={28} />
         </View>
-        <Text className="text-center text-xl font-semibold">No matching requests</Text>
+        <Text className="text-center text-xl font-semibold">
+          {filteredHint === 'domain' ? 'No matching domains' : 'No matching requests'}
+        </Text>
         <Text variant="muted" className="mt-2 text-center">
-          Try clearing the search or resetting method / status filters.
+          {filteredHint === 'domain'
+            ? 'Try clearing the domain search or resetting the client filter.'
+            : 'Try clearing the search or resetting method / status filters.'}
         </Text>
       </View>
     );

@@ -1,29 +1,18 @@
-import { router } from 'expo-router';
-import { ChevronRight, Search, Star } from 'lucide-react-native';
+import { Search } from 'lucide-react-native';
 import * as React from 'react';
-import { FlatList, Pressable, View } from 'react-native';
+import { FlatList, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { groupByDomain } from '@/features/proxy/lib/domain-group';
 import { resolveTrafficEmptyKind } from '@/features/proxy/lib/traffic-empty-kind';
 import { useProxyEntries, useProxyPins, useProxyStatus } from '@/features/proxy/store';
 import { AppHeader } from '@/features/proxy/ui/app-header';
+import { DomainRow } from '@/features/proxy/ui/domain-row';
 import { TrafficEmptyState } from '@/features/proxy/ui/traffic-empty';
 import { TrafficToolbar } from '@/features/proxy/ui/traffic-toolbar';
 import { FilterSelect } from '@/features/proxy/ui/traffic-toolbar/filter-select';
-import type { TrafficEntry } from '@/entities/traffic/types';
-import { clientAttributionKindOfEntry, clientNameOfEntry } from '@/entities/traffic/client-name';
-import { cn } from '@/shared/lib/utils';
 import { Icon } from '@/shared/ui/icon';
-import { Badge } from '@/shared/ui/badge';
 import { Input } from '@/shared/ui/input';
-import { Text } from '@/shared/ui/text';
-
-type DomainGroup = {
-  host: string;
-  totalRequests: number;
-  clientName: string;
-  clientAttributionKind: 'exact' | 'heuristic' | 'unknown';
-};
 
 export default function HomeScreen() {
   const { status } = useProxyStatus();
@@ -36,21 +25,21 @@ export default function HomeScreen() {
   const clientNameOptions = React.useMemo(() => {
     const set = new Set(groups.map((g) => g.clientName).filter(Boolean));
     const values = Array.from(set).sort();
-    return [
-      { value: 'ALL', label: 'All' },
-      ...values.map((v) => ({ value: v, label: v })),
-    ];
+    return [{ value: 'ALL', label: 'All' }, ...values.map((v) => ({ value: v, label: v }))];
   }, [groups]);
 
   const filteredGroups = React.useMemo(() => {
     const byQuery = normalizedDomainQuery
       ? groups.filter((group) => group.host.toLowerCase().includes(normalizedDomainQuery))
       : groups;
-    const byClient = clientNameFilter === 'ALL' ? byQuery : byQuery.filter((g) => g.clientName === clientNameFilter);
+    const byClient =
+      clientNameFilter === 'ALL'
+        ? byQuery
+        : byQuery.filter((g) => g.clientName === clientNameFilter);
     return [...byClient].sort((a, b) => {
       const ai = pinnedHosts.indexOf(a.host);
       const bi = pinnedHosts.indexOf(b.host);
-      if (ai === -1 && bi === -1) return 0;
+      if (ai === -1 && bi === -1) return b.lastSeenAt - a.lastSeenAt;
       if (ai === -1) return 1;
       if (bi === -1) return -1;
       return ai - bi;
@@ -96,101 +85,21 @@ export default function HomeScreen() {
         </View>
       </View>
       {emptyKind ? (
-        <TrafficEmptyState kind={emptyKind} />
+        <TrafficEmptyState kind={emptyKind} filteredHint="domain" />
       ) : (
         <FlatList
           data={filteredGroups}
           keyExtractor={(item) => item.host}
-          renderItem={({ item }) => {
-            const pinned = pinnedHosts.includes(item.host);
-            return (
-              <Pressable
-                className={cn('border-border active:bg-accent/40 border-b px-4 py-3 sm:px-6')}
-                onPress={() => router.push(`/domain/${encodeURIComponent(item.host)}`)}
-              >
-                <View className="flex-row items-center justify-between gap-2">
-                  <View className="min-w-0 flex-1 flex-row items-center gap-2">
-                    <Pressable
-                      onPress={() => togglePin(item.host)}
-                      hitSlop={8}
-                      accessibilityRole="button"
-                      accessibilityLabel={pinned ? 'Unpin domain' : 'Pin domain'}
-                    >
-                      <Icon
-                        as={Star}
-                        className={pinned ? 'text-primary' : 'text-muted-foreground'}
-                        fill={pinned ? 'currentColor' : 'none'}
-                        size={16}
-                      />
-                    </Pressable>
-                    <Text numberOfLines={1} className="shrink font-mono text-sm">
-                      {item.host}
-                    </Text>
-                    <Badge
-                      label={item.clientName}
-                      variant={
-                        item.clientAttributionKind === 'exact'
-                          ? 'success'
-                          : item.clientAttributionKind === 'heuristic'
-                            ? 'outline'
-                            : 'default'
-                      }
-                      className="shrink-0"
-                    />
-                  </View>
-                  <View className="flex-row items-center gap-1.5">
-                    <Text variant="muted" className="font-mono text-xs">
-                      {item.totalRequests}
-                    </Text>
-                    <Icon as={ChevronRight} className="text-muted-foreground" size={16} />
-                  </View>
-                </View>
-              </Pressable>
-            );
-          }}
+          renderItem={({ item }) => (
+            <DomainRow
+              group={item}
+              pinned={pinnedHosts.includes(item.host)}
+              onTogglePin={() => togglePin(item.host)}
+            />
+          )}
           className="flex-1"
         />
       )}
     </SafeAreaView>
   );
-}
-
-function groupByDomain(entries: TrafficEntry[]): DomainGroup[] {
-  const ordered: DomainGroup[] = [];
-  const byHost = new Map<
-    string,
-    { group: DomainGroup; counts: Map<string, number>; bestCount: number }
-  >();
-
-  for (const entry of entries) {
-    const name = clientNameOfEntry(entry);
-    const kind = clientAttributionKindOfEntry(entry);
-    const counterKey = `${kind}:${name}`;
-    const existing = byHost.get(entry.host);
-    if (existing) {
-      existing.group.totalRequests += 1;
-      const prev = existing.counts.get(counterKey) ?? 0;
-      const nextCount = prev + 1;
-      existing.counts.set(counterKey, nextCount);
-      if (nextCount > existing.bestCount) {
-        existing.bestCount = nextCount;
-        existing.group.clientName = name;
-        existing.group.clientAttributionKind = kind;
-      }
-      continue;
-    }
-
-    const next: DomainGroup = {
-      host: entry.host,
-      totalRequests: 1,
-      clientName: name,
-      clientAttributionKind: kind,
-    };
-    const counts = new Map<string, number>();
-    counts.set(counterKey, 1);
-    byHost.set(entry.host, { group: next, counts, bestCount: 1 });
-    ordered.push(next);
-  }
-
-  return ordered;
 }

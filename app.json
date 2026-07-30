@@ -19,12 +19,8 @@
       "appleTeamId": "YOUR_APPLE_TEAM_ID",
       "bundleIdentifier": "com.lenswire.app",
       "entitlements": {
-        "com.apple.security.application-groups": [
-          "group.com.lenswire.app"
-        ],
-        "com.apple.developer.networking.networkextension": [
-          "packet-tunnel-provider"
-        ]
+        "com.apple.security.application-groups": ["group.com.lenswire.app"],
+        "com.apple.developer.networking.networkextension": ["packet-tunnel-provider"]
       },
       "infoPlist": {
         "NSAppTransportSecurity": {
@@ -65,12 +61,7 @@
         "backgroundColor": "#0B0F14"
       }
     },
-    "plugins": [
-      "expo-router",
-      "expo-font",
-      "expo-dev-client",
-      "@bacons/apple-targets"
-    ],
+    "plugins": ["expo-router", "expo-font", "expo-dev-client", "@bacons/apple-targets"],
     "experiments": {
       "typedRoutes": true
     }

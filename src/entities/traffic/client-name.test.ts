@@ -1,12 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
-import type { TrafficEntry, TrafficBody } from './types';
-
 import {
   clientAttributionKindOfEntry,
   clientNameFromUserAgent,
   clientNameOfEntry,
 } from './client-name';
+import type { TrafficBody, TrafficEntry } from './types';
 
 function textBody(text: string): TrafficBody {
   return { kind: 'text', text, size: text.length };
@@ -45,15 +44,15 @@ describe('client-name heuristics', () => {
   });
 
   it('detects Chrome from UA', () => {
-    expect(
-      clientNameFromUserAgent('Mozilla/5.0 ... Chrome/126.0.0.0 Safari/537.36'),
-    ).toBe('Chrome');
+    expect(clientNameFromUserAgent('Mozilla/5.0 ... Chrome/126.0.0.0 Safari/537.36')).toBe(
+      'Chrome',
+    );
   });
 
   it('detects Safari from UA', () => {
-    expect(
-      clientNameFromUserAgent('Mozilla/5.0 ... Version/17.0 Mobile/15E148 Safari/604.1'),
-    ).toBe('Safari');
+    expect(clientNameFromUserAgent('Mozilla/5.0 ... Version/17.0 Mobile/15E148 Safari/604.1')).toBe(
+      'Safari',
+    );
   });
 
   it('detects OkHttp from UA', () => {
@@ -119,4 +118,3 @@ describe('clientAttributionKindOfEntry()', () => {
     expect(clientAttributionKindOfEntry(entry)).toBe('unknown');
   });
 });
-

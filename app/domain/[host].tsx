@@ -1,16 +1,25 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { ArrowLeft } from 'lucide-react-native';
+import { ArrowLeft, Check, Copy, Star } from 'lucide-react-native';
 import * as React from 'react';
 import { FlatList, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { filterEntries } from '@/entities/traffic/filter';
 import type { TrafficEntry } from '@/entities/traffic/types';
+import { useCopiedFeedback } from '@/features/proxy/hooks/use-copied-feedback';
+import { summarizeHost } from '@/features/proxy/lib/domain-group';
+import { formatRelativeTime } from '@/features/proxy/lib/format-relative-time';
 import { resolveTrafficEmptyKind } from '@/features/proxy/lib/traffic-empty-kind';
-import { useProxyEntries, useProxyFilters, useProxyStatus } from '@/features/proxy/store';
+import {
+  useProxyEntries,
+  useProxyFilters,
+  useProxyPins,
+  useProxyStatus,
+} from '@/features/proxy/store';
 import { TrafficEmptyState } from '@/features/proxy/ui/traffic-empty';
 import { TrafficRow } from '@/features/proxy/ui/traffic-row';
 import { TrafficToolbar } from '@/features/proxy/ui/traffic-toolbar';
+import { Badge } from '@/shared/ui/badge';
 import { Button } from '@/shared/ui/button';
 import { Icon } from '@/shared/ui/icon';
 import { Text } from '@/shared/ui/text';
@@ -26,13 +35,23 @@ export default function DomainScreen() {
   const { status } = useProxyStatus();
   const { entries } = useProxyEntries();
   const { filters } = useProxyFilters();
+  const { pinnedHosts, togglePin } = useProxyPins();
+  const { copied, copy } = useCopiedFeedback();
+  const [hideConnect, setHideConnect] = React.useState(false);
   const host = decodeHostParam(encodedHost);
+  const pinned = pinnedHosts.includes(host);
+  const summary = React.useMemo(() => summarizeHost(entries, host), [entries, host]);
+
   const filtered = filterEntries(entries, filters);
   const byHost = React.useMemo(
     () => filtered.filter((entry) => entry.host === host),
     [filtered, host],
   );
-  const compacted = React.useMemo(() => collapseNoisyConnect(byHost), [byHost]);
+  const withoutConnect = React.useMemo(
+    () => (hideConnect ? byHost.filter((entry) => entry.method !== 'CONNECT') : byHost),
+    [byHost, hideConnect],
+  );
+  const compacted = React.useMemo(() => collapseNoisyConnect(withoutConnect), [withoutConnect]);
 
   const hasActiveFilters =
     filters.query.trim().length > 0 ||
@@ -41,11 +60,12 @@ export default function DomainScreen() {
     filters.statusClass !== 'ALL' ||
     filters.scheme !== 'ALL' ||
     filters.captureMode !== 'ALL' ||
-    filters.overriddenOnly;
+    filters.overriddenOnly ||
+    hideConnect;
 
   const emptyKind = resolveTrafficEmptyKind({
     visibleCount: compacted.length,
-    hasTraffic: entries.length > 0,
+    hasTraffic: entries.some((e) => e.host === host),
     status,
     hasActiveFilters,
   });
@@ -57,9 +77,70 @@ export default function DomainScreen() {
           <Button variant="ghost" size="icon" onPress={() => router.back()}>
             <Icon as={ArrowLeft} className="text-foreground" size={18} />
           </Button>
-          <Text className="font-semibold">Domain</Text>
+          <Text numberOfLines={1} className="min-w-0 flex-1 font-mono text-sm font-semibold">
+            {host}
+          </Text>
+          <Button
+            variant="ghost"
+            size="icon"
+            onPress={() => togglePin(host)}
+            accessibilityLabel={pinned ? 'Unpin domain' : 'Pin domain'}
+          >
+            <Icon
+              as={Star}
+              className={pinned ? 'text-primary' : 'text-muted-foreground'}
+              fill={pinned ? 'currentColor' : 'none'}
+              size={18}
+            />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            onPress={() => void copy(host)}
+            accessibilityLabel="Copy host"
+          >
+            <Icon
+              as={copied ? Check : Copy}
+              className={copied ? 'text-primary' : 'text-foreground'}
+              size={18}
+            />
+          </Button>
         </View>
-        <Text className="mt-2 font-mono text-sm">{host}</Text>
+
+        {summary ? (
+          <View className="mt-2 flex-row flex-wrap items-center gap-2">
+            <Badge
+              label={summary.clientName}
+              variant={
+                summary.clientAttributionKind === 'exact'
+                  ? 'success'
+                  : summary.clientAttributionKind === 'heuristic'
+                    ? 'outline'
+                    : 'default'
+              }
+            />
+            <Text variant="muted" className="font-mono text-xs">
+              {summary.totalRequests} {summary.totalRequests === 1 ? 'request' : 'requests'}
+            </Text>
+            {summary.errorCount > 0 ? (
+              <Badge label={`${summary.errorCount} err`} variant="danger" />
+            ) : null}
+            {summary.tunnelOnly ? <Badge label="tunnel" variant="outline" /> : null}
+            <Text variant="muted" className="font-mono text-xs">
+              {formatRelativeTime(summary.lastSeenAt)}
+            </Text>
+          </View>
+        ) : null}
+
+        <View className="mt-3">
+          <Button
+            variant={hideConnect ? 'secondary' : 'outline'}
+            size="sm"
+            onPress={() => setHideConnect((v) => !v)}
+          >
+            <Text>{hideConnect ? 'Showing without CONNECT' : 'Hide CONNECT'}</Text>
+          </Button>
+        </View>
       </View>
 
       <TrafficToolbar showControls={false} showFilters />
