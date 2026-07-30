@@ -1,0 +1,311 @@
+import { SiteFooter } from '@/components/SiteFooter';
+import { SiteHeader } from '@/components/SiteHeader';
+import { withBasePath } from '@/lib/basePath';
+import { faqs, features, screens, spotlights } from '@/lib/content';
+
+export default function HomePage() {
+  return (
+    <>
+      <SiteHeader />
+      <main>
+        {/* Hero — brand + phone-sized video side-by-side on desktop */}
+        <section className="relative overflow-hidden border-b border-line bg-gradient-to-br from-[#0B3D91] via-[#0077B6] to-[#48CAE4]">
+          <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,rgba(255,255,255,0.22),transparent_55%)]" />
+          <div className="relative mx-auto grid max-w-6xl items-center gap-10 px-5 py-16 lg:grid-cols-2 lg:gap-16 lg:py-20">
+            <div className="text-center lg:text-left">
+              <img
+                src={withBasePath('/favicon.png')}
+                alt=""
+                width={56}
+                height={56}
+                className="mx-auto rounded-2xl shadow-lg shadow-black/20 ring-1 ring-white/30 lg:mx-0"
+              />
+              <h1 className="mt-6 font-display text-[clamp(3.75rem,12vw,6rem)] font-medium leading-none tracking-tight text-white">
+                Lenswire
+              </h1>
+              <p className="mt-5 font-display text-2xl leading-snug text-white/90 sm:text-3xl">
+                Capture HTTP(S) traffic on your phone
+              </p>
+              <p className="mx-auto mt-4 max-w-md text-[0.98rem] leading-relaxed text-white/75 sm:text-base lg:mx-0">
+                Inspect, decrypt, and override network requests from your iOS and Android apps — local
+                VPN MITM, no desktop required.
+              </p>
+              <div className="mt-8 flex flex-wrap justify-center gap-3 lg:justify-start">
+                <a
+                  href="https://github.com/dmitryshelomanov/lenswire"
+                  className="inline-flex h-11 items-center rounded-full bg-white px-5 text-sm font-medium text-ink no-underline transition hover:bg-white/90"
+                >
+                  View on GitHub
+                </a>
+                <a
+                  href="#screens"
+                  className="inline-flex h-11 items-center rounded-full border border-white/40 bg-white/10 px-5 text-sm font-medium text-white no-underline backdrop-blur transition hover:bg-white/20"
+                >
+                  See screens
+                </a>
+              </div>
+              <p className="mt-5 text-xs text-white/60">iOS · Android · on-device · MIT</p>
+            </div>
+
+            <div className="flex justify-center lg:justify-end">
+              <div className="w-full max-w-[18rem] overflow-hidden rounded-[1.75rem] shadow-[0_32px_64px_-20px_rgba(0,0,0,0.45)] ring-1 ring-white/25 sm:max-w-[20rem] lg:max-w-[22rem]">
+                <video
+                  className="block h-auto w-full bg-black"
+                  autoPlay
+                  muted
+                  loop
+                  playsInline
+                  preload="metadata"
+                  poster={withBasePath('/screenshots/traffic.jpg')}
+                >
+                  <source src={withBasePath('/demo.mp4')} type="video/mp4" />
+                  <source src={withBasePath('/demo.webm')} type="video/webm" />
+                </video>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* What it is */}
+        <section className="mx-auto max-w-5xl px-5 py-16 sm:py-20">
+          <div className="mx-auto max-w-2xl text-center">
+            <h2 className="font-display text-4xl tracking-tight sm:text-5xl">
+              A clear view of every request
+            </h2>
+            <p className="mt-4 text-lg leading-relaxed text-muted">
+              Domain overviews, decrypted payloads, filters, overrides, and HAR export — readable on
+              the phone.
+            </p>
+          </div>
+        </section>
+
+        {/* Features */}
+        <section id="features" className="border-y border-line bg-wash">
+          <div className="mx-auto max-w-5xl px-5 py-16 sm:py-20">
+            <div className="mx-auto max-w-2xl text-center">
+              <h2 className="font-display text-4xl tracking-tight sm:text-5xl">
+                What you can do
+              </h2>
+              <p className="mt-3 text-muted">
+                Capture, inspect, mock, and share HTTP(S) from your device.
+              </p>
+            </div>
+            <ul className="mt-12 grid gap-5 sm:grid-cols-2">
+              {features.map((feature, i) => (
+                <li
+                  key={feature.title}
+                  className="rounded-2xl bg-paper p-7 shadow-[0_8px_30px_-12px_rgba(11,61,145,0.18)] ring-1 ring-black/[0.04] sm:p-8"
+                >
+                  <FeatureIcon index={i} />
+                  <h3 className="mt-4 text-lg font-semibold tracking-tight text-ink">
+                    {feature.title}
+                  </h3>
+                  <p className="mt-2 text-[0.95rem] leading-relaxed text-muted">{feature.body}</p>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </section>
+
+        {/* Spotlight rows */}
+        <section className="mx-auto max-w-5xl space-y-20 px-5 py-16 sm:space-y-28 sm:py-24">
+          {spotlights.map((item) => (
+            <Spotlight key={item.title} {...item} />
+          ))}
+        </section>
+
+        {/* Screens — horizontal scroll */}
+        <section id="screens" className="border-t border-line bg-wash py-16 sm:py-20">
+          <div className="mx-auto max-w-5xl px-5">
+            <h2 className="font-display text-4xl tracking-tight sm:text-5xl">In the app</h2>
+            <p className="mt-3 max-w-lg text-muted">
+              Traffic list, domain drill-down, request/response detail, and overrides.
+            </p>
+          </div>
+          <div className="mt-10 overflow-x-auto overscroll-x-contain scroll-smooth pb-2 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+            <ul className="flex w-max snap-x snap-mandatory gap-6 px-5 sm:gap-8 sm:px-[max(1.25rem,calc((100vw-64rem)/2+1.25rem))]">
+              {screens.map((screen) => (
+                <li key={screen.src} className="w-[15.5rem] shrink-0 snap-start sm:w-[17rem]">
+                  <figure>
+                    <DeviceFrame src={screen.src} alt={screen.alt} />
+                    <figcaption className="mt-4">
+                      <p className="text-base font-medium tracking-tight text-ink">{screen.title}</p>
+                      <p className="mt-1 text-sm leading-relaxed text-muted">{screen.body}</p>
+                    </figcaption>
+                  </figure>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </section>
+
+        {/* FAQ */}
+        <section id="faq" className="mx-auto max-w-5xl px-5 py-16 sm:py-20">
+          <h2 className="font-display text-4xl tracking-tight sm:text-5xl">FAQ</h2>
+          <p className="mt-3 text-muted">Common questions.</p>
+          <dl className="mt-10 space-y-6">
+            {faqs.map((item) => (
+              <div key={item.q} className="border-t border-line pt-6">
+                <dt className="text-lg font-medium tracking-tight">{item.q}</dt>
+                <dd className="mt-2 max-w-2xl text-[0.98rem] leading-relaxed text-muted">
+                  {item.a}
+                </dd>
+              </div>
+            ))}
+          </dl>
+        </section>
+
+        {/* CTA — free lure */}
+        <section className="mx-auto max-w-5xl px-5 pb-16 sm:pb-20">
+          <div className="rounded-3xl bg-gradient-to-br from-[#e8f4fb] via-[#f0f7fb] to-white px-6 py-10 ring-1 ring-line sm:px-12 sm:py-14">
+            <img
+              src={withBasePath('/favicon.png')}
+              alt=""
+              width={48}
+              height={48}
+              className="rounded-xl shadow-sm ring-1 ring-black/5"
+            />
+            <h2 className="mt-5 font-display text-3xl tracking-tight sm:text-4xl">
+              Free and open source
+            </h2>
+            <p className="mt-3 max-w-xl text-[0.98rem] leading-relaxed text-muted sm:text-base">
+              MIT licensed, no account, no cloud. Capture and decrypt stay on your device.
+            </p>
+            <div className="mt-7">
+              <a
+                href="https://github.com/dmitryshelomanov/lenswire"
+                className="inline-flex h-11 items-center rounded-full bg-ink px-5 text-sm font-medium text-white no-underline transition hover:bg-navy"
+              >
+                View on GitHub
+              </a>
+            </div>
+          </div>
+        </section>
+      </main>
+      <SiteFooter />
+    </>
+  );
+}
+
+function FeatureIcon({ index }: { index: number }) {
+  const common = {
+    width: 28,
+    height: 28,
+    viewBox: '0 0 24 24',
+    fill: 'none',
+    stroke: 'currentColor',
+    strokeWidth: 1.6,
+    strokeLinecap: 'round' as const,
+    strokeLinejoin: 'round' as const,
+    className: 'text-ink',
+    'aria-hidden': true as const,
+  };
+
+  switch (index) {
+    case 0: // VPN / phone
+      return (
+        <svg {...common}>
+          <rect x="7" y="2.5" width="10" height="19" rx="2.5" />
+          <path d="M11 18.5h2" />
+        </svg>
+      );
+    case 1: // lock / HTTPS
+      return (
+        <svg {...common}>
+          <rect x="4.5" y="10" width="15" height="11" rx="2" />
+          <path d="M8 10V7a4 4 0 0 1 8 0v3" />
+        </svg>
+      );
+    case 2: // filter
+      return (
+        <svg {...common}>
+          <path d="M4 5h16l-6 7.5V19l-4 2v-8.5L4 5z" />
+        </svg>
+      );
+    case 3: // code / detail
+      return (
+        <svg {...common}>
+          <path d="M8 7 3.5 12 8 17" />
+          <path d="M16 7l4.5 5L16 17" />
+          <path d="M13 5l-2 14" />
+        </svg>
+      );
+    case 4: // swap / override
+      return (
+        <svg {...common}>
+          <path d="M7 7h11l-3-3" />
+          <path d="M17 17H6l3 3" />
+          <path d="M18 7v4M6 17v-4" />
+        </svg>
+      );
+    default: // shield / privacy
+      return (
+        <svg {...common}>
+          <path d="M12 3 5 6.5v5c0 4.2 2.8 7.8 7 9 4.2-1.2 7-4.8 7-9v-5L12 3z" />
+        </svg>
+      );
+  }
+}
+
+function DeviceFrame({
+  src,
+  alt,
+  priority = false,
+}: {
+  src: string;
+  alt: string;
+  priority?: boolean;
+}) {
+  return (
+    <div className="rounded-[2rem] bg-[#111] p-[7px] shadow-[0_28px_60px_-32px_rgba(11,61,145,0.45)] ring-1 ring-black/10">
+      <div className="overflow-hidden rounded-[1.55rem] bg-black">
+        <img
+          src={withBasePath(src)}
+          alt={alt}
+          width={394}
+          height={860}
+          className="block h-auto w-full"
+          loading={priority ? 'eager' : 'lazy'}
+          fetchPriority={priority ? 'high' : undefined}
+        />
+      </div>
+    </div>
+  );
+}
+
+function Spotlight({
+  eyebrow,
+  title,
+  body,
+  src,
+  alt,
+  reverse = false,
+  wash,
+}: {
+  eyebrow: string;
+  title: string;
+  body: string;
+  src: string;
+  alt: string;
+  reverse?: boolean;
+  wash: string;
+}) {
+  return (
+    <div
+      className={`grid items-center gap-10 lg:grid-cols-2 lg:gap-16 ${reverse ? 'lg:[&>*:first-child]:order-2' : ''}`}
+    >
+      <div>
+        <p className="text-sm font-medium tracking-wide text-navy">{eyebrow}</p>
+        <h3 className="mt-2 font-display text-3xl tracking-tight sm:text-[2.1rem]">{title}</h3>
+        <p className="mt-4 text-base leading-relaxed text-muted sm:text-lg">{body}</p>
+      </div>
+      <div
+        className={`mx-auto flex w-full max-w-md justify-center rounded-3xl bg-gradient-to-br ${wash} p-8 sm:p-10`}
+      >
+        <div className="w-[min(16.5rem,78%)]">
+          <DeviceFrame src={src} alt={alt} />
+        </div>
+      </div>
+    </div>
+  );
+}

@@ -13,6 +13,7 @@ module.exports = defineConfig([
       'modules/lenswire-proxy/android/build/**',
       'sandbox/**',
       'targets/**',
+      'website/**',
     ],
   },
   {
