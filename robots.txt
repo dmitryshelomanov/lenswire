@@ -1,0 +1,4 @@
+User-Agent: *
+Allow: /
+
+Sitemap: https://dmitryshelomanov.github.io/lenswire/sitemap.xml
