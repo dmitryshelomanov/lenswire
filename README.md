@@ -67,23 +67,23 @@ npm run screenshots:play              # Play graphic + Android framed screenshot
 
 ## Store release checklist
 
-| Item                                  | Android / Play                                                                                      | iOS / App Store                                      |
-| ------------------------------------- | --------------------------------------------------------------------------------------------------- | ---------------------------------------------------- |
-| App id / package in config            | Done (`com.lenswire.app`)                                                                           | Done (`com.lenswire.app` + Packet Tunnel extension)  |
-| Icon + splash in binary               | Done                                                                                                | Done                                                 |
-| Privacy policy URL                    | Done ([live](https://dmitryshelomanov.github.io/lenswire/privacy/))                                 | Done (same URL; paste in ASC)                        |
-| Phone listing screenshots             | Done ([`framed-*.png`](docs/store-screenshots/android/) via `screenshots:play`)                     | Done ([`01–06.png`](docs/store-screenshots/))        |
-| Feature graphic / listing icon        | Done ([`play-store/`](docs/play-store/) via `screenshots:play`)                                     | n/a (uses app icon)                                  |
-| Listing copy + compliance docs        | Done ([`LISTING`](docs/play-store/LISTING.md), [`DATA-SAFETY`](docs/play-store/DATA-SAFETY.md))     | Todo (`docs/app-store/` not started)                 |
-| EAS production profile / scripts      | Done (`build:android:local`, upload keystore on EAS)                                                | Todo (no `build:ios` / `submit:ios` yet)             |
-| Store-signed production binary        | Done (AAB via local EAS → `dist/android/lenswire-production-1.0.0.aab`)                             | Todo (`.ipa` via EAS)                                |
-| Real Apple Team ID in `app.json`      | n/a                                                                                                 | Todo (`appleTeamId` is still `YOUR_APPLE_TEAM_ID`)   |
-| Network Extension entitlements        | n/a                                                                                                 | Todo (paid Apple Developer + NE capability approved) |
-| Developer account + store console app | Todo (Play Console create + first AAB upload)                                                       | Todo (Apple Developer + App Store Connect)           |
-| Automated submit credentials          | Todo (Google service account for `eas submit`)                                                      | Todo (App Store Connect API key)                     |
-| Internal test track                   | Todo (Play Internal testing)                                                                        | Todo (TestFlight)                                    |
-| Tablet screenshots                    | Optional                                                                                            | Todo if `supportsTablet` stays true                  |
-| Public production release             | Todo                                                                                                | Todo                                                 |
+| Item                                  | Android / Play                                                                                  | iOS / App Store                                      |
+| ------------------------------------- | ----------------------------------------------------------------------------------------------- | ---------------------------------------------------- |
+| App id / package in config            | Done (`com.lenswire.app`)                                                                       | Done (`com.lenswire.app` + Packet Tunnel extension)  |
+| Icon + splash in binary               | Done                                                                                            | Done                                                 |
+| Privacy policy URL                    | Done ([live](https://dmitryshelomanov.github.io/lenswire/privacy/))                             | Done (same URL; paste in ASC)                        |
+| Phone listing screenshots             | Done ([`framed-*.png`](docs/store-screenshots/android/) via `screenshots:play`)                 | Done ([`01–06.png`](docs/store-screenshots/))        |
+| Feature graphic / listing icon        | Done ([`play-store/`](docs/play-store/) via `screenshots:play`)                                 | n/a (uses app icon)                                  |
+| Listing copy + compliance docs        | Done ([`LISTING`](docs/play-store/LISTING.md), [`DATA-SAFETY`](docs/play-store/DATA-SAFETY.md)) | Todo (`docs/app-store/` not started)                 |
+| EAS production profile / scripts      | Done (`build:android:local`, upload keystore on EAS)                                            | Todo (no `build:ios` / `submit:ios` yet)             |
+| Store-signed production binary        | Done (AAB via local EAS → `dist/android/lenswire-production-1.0.0.aab`)                         | Todo (`.ipa` via EAS)                                |
+| Real Apple Team ID in `app.json`      | n/a                                                                                             | Todo (`appleTeamId` is still `YOUR_APPLE_TEAM_ID`)   |
+| Network Extension entitlements        | n/a                                                                                             | Todo (paid Apple Developer + NE capability approved) |
+| Developer account + store console app | Todo (Play Console create + first AAB upload)                                                   | Todo (Apple Developer + App Store Connect)           |
+| Automated submit credentials          | Todo (Google service account for `eas submit`)                                                  | Todo (App Store Connect API key)                     |
+| Internal test track                   | Todo (Play Internal testing)                                                                    | Todo (TestFlight)                                    |
+| Tablet screenshots                    | Optional                                                                                        | Todo if `supportsTablet` stays true                  |
+| Public production release             | Todo                                                                                            | Todo                                                 |
 
 Full asset map: [`docs/STORE-ASSETS.md`](docs/STORE-ASSETS.md). Android upload steps: [`docs/play-store/PLAY-CONSOLE.md`](docs/play-store/PLAY-CONSOLE.md).
 
@@ -235,18 +235,18 @@ Key components:
 
 ## Scripts
 
-| Script                                      | Purpose                                            |
-| ------------------------------------------- | -------------------------------------------------- |
-| `npm run ios` / `android`                   | Build & run                                        |
-| `npm run prebuild:ios` / `prebuild:android` | Regenerate native projects                         |
-| `npm run build:android:preview:local`       | Local EAS preview APK                              |
-| `npm run build:android:local`               | Local EAS production AAB                           |
+| Script                                      | Purpose                                             |
+| ------------------------------------------- | --------------------------------------------------- |
+| `npm run ios` / `android`                   | Build & run                                         |
+| `npm run prebuild:ios` / `prebuild:android` | Regenerate native projects                          |
+| `npm run build:android:preview:local`       | Local EAS preview APK                               |
+| `npm run build:android:local`               | Local EAS production AAB                            |
 | `npm run screenshots:store`                 | Colorful marketing frames + website JPG screenshots |
 | `npm run screenshots:play`                  | Play feature graphic + Android framed screenshots   |
-| `npm run website:dev` / `website:deploy`    | Landing page (GitHub Pages)                        |
-| `npm run sim:trust-ca`                      | Trust app-generated CA in booted iOS Simulator     |
-| `npm run android:trust-ca`                  | Install Lenswire CA into System store (rooted AVD) |
-| `npm run sim:mac-proxy-on/off`              | Mac HTTP(S) proxy helpers                          |
+| `npm run website:dev` / `website:deploy`    | Landing page (GitHub Pages)                         |
+| `npm run sim:trust-ca`                      | Trust app-generated CA in booted iOS Simulator      |
+| `npm run android:trust-ca`                  | Install Lenswire CA into System store (rooted AVD)  |
+| `npm run sim:mac-proxy-on/off`              | Mac HTTP(S) proxy helpers                           |
 
 ## About
 

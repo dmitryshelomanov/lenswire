@@ -16,9 +16,9 @@ npm run build:android:preview:local
 npm run build:android:local
 ```
 
-| Artifact                       | Typical path                                      |
-| ------------------------------ | ------------------------------------------------- |
-| Preview APK (sideload / smoke) | `dist/android/lenswire-preview-1.0.0.apk` (also `build-*.apk` in repo root) |
+| Artifact                       | Typical path                                                                   |
+| ------------------------------ | ------------------------------------------------------------------------------ |
+| Preview APK (sideload / smoke) | `dist/android/lenswire-preview-1.0.0.apk` (also `build-*.apk` in repo root)    |
 | Production AAB (Play upload)   | `dist/android/lenswire-production-1.0.0.aab` (also `build-*.aab` in repo root) |
 
 EAS project: https://expo.dev/accounts/dshelomanovs-team/projects/lenswire

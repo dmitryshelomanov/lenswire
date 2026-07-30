@@ -101,7 +101,9 @@ function coverTitleSvg() {
 }
 
 async function gradientBg(from, to, angle) {
-  return sharp(gradientSvg(from, to, angle)).png().toBuffer();
+  return sharp(gradientSvg(from, to, angle))
+    .png()
+    .toBuffer();
 }
 
 async function makePhoneScreen(screenshotPath) {
