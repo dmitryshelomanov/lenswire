@@ -31,6 +31,14 @@ function useRuntimeBootstrap(): void {
   }, []);
 }
 
+function useRuntimeSlice<T>(slice: {
+  subscribe: (listener: () => void) => () => void;
+  getSnapshot: () => T;
+}): T {
+  useRuntimeBootstrap();
+  return React.useSyncExternalStore(slice.subscribe, slice.getSnapshot, slice.getSnapshot);
+}
+
 export function useProxyStatus(): {
   status: ProxyStatus;
   recording: boolean;
@@ -40,12 +48,7 @@ export function useProxyStatus(): {
   probe: (type?: ProbeType, scheme?: ProbeScheme) => Promise<void>;
   toggleRecording: () => void;
 } {
-  useRuntimeBootstrap();
-  const control = React.useSyncExternalStore(
-    proxyRuntime.control.subscribe,
-    proxyRuntime.control.getSnapshot,
-    proxyRuntime.control.getSnapshot,
-  );
+  const control = useRuntimeSlice(proxyRuntime.control);
 
   return {
     status: control.status,
@@ -63,12 +66,7 @@ export function useProxyEntries(): {
   getEntry: (id: string) => TrafficEntry | undefined;
   clear: () => Promise<void>;
 } {
-  useRuntimeBootstrap();
-  const entries = React.useSyncExternalStore(
-    proxyRuntime.entries.subscribe,
-    proxyRuntime.entries.getSnapshot,
-    proxyRuntime.entries.getSnapshot,
-  );
+  const entries = useRuntimeSlice(proxyRuntime.entries);
 
   return {
     entries,
@@ -81,12 +79,7 @@ export function useProxyFilters(): {
   filters: TrafficFilters;
   setFilters: (patch: Partial<TrafficFilters>) => void;
 } {
-  useRuntimeBootstrap();
-  const filters = React.useSyncExternalStore(
-    proxyRuntime.filters.subscribe,
-    proxyRuntime.filters.getSnapshot,
-    proxyRuntime.filters.getSnapshot,
-  );
+  const filters = useRuntimeSlice(proxyRuntime.filters);
 
   return { filters, setFilters };
 }
@@ -95,12 +88,7 @@ export function useProxySettings(): {
   settings: ProxySettings;
   updateSettings: (patch: Partial<ProxySettings>) => void;
 } {
-  useRuntimeBootstrap();
-  const settings = React.useSyncExternalStore(
-    proxyRuntime.settings.subscribe,
-    proxyRuntime.settings.getSnapshot,
-    proxyRuntime.settings.getSnapshot,
-  );
+  const settings = useRuntimeSlice(proxyRuntime.settings);
 
   return { settings, updateSettings };
 }
@@ -110,12 +98,7 @@ export function useProxyCertificate(): {
   busy: boolean;
   generateCertificate: () => Promise<void>;
 } {
-  useRuntimeBootstrap();
-  const slice = React.useSyncExternalStore(
-    proxyRuntime.certificate.subscribe,
-    proxyRuntime.certificate.getSnapshot,
-    proxyRuntime.certificate.getSnapshot,
-  );
+  const slice = useRuntimeSlice(proxyRuntime.certificate);
 
   return {
     certificate: slice.certificate,
@@ -128,12 +111,7 @@ export function useProxyPins(): {
   pinnedHosts: string[];
   togglePin: (host: string) => void;
 } {
-  useRuntimeBootstrap();
-  const pinnedHosts = React.useSyncExternalStore(
-    proxyRuntime.pins.subscribe,
-    proxyRuntime.pins.getSnapshot,
-    proxyRuntime.pins.getSnapshot,
-  );
+  const pinnedHosts = useRuntimeSlice(proxyRuntime.pins);
 
   return { pinnedHosts, togglePin };
 }

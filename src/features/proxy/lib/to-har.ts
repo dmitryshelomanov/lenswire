@@ -8,6 +8,12 @@ type HarContent = {
   comment?: string;
 };
 
+type HarPostData = {
+  mimeType: string;
+  text: string;
+  encoding?: string;
+};
+
 function mimeFromHeaders(headers: Record<string, string>): string {
   for (const [key, value] of Object.entries(headers)) {
     if (key.toLowerCase() === 'content-type') {
@@ -51,6 +57,17 @@ function harContent(body: TrafficBody, headers: Record<string, string>): HarCont
   };
 }
 
+function harPostData(body: TrafficBody, headers: Record<string, string>): HarPostData | undefined {
+  if (body.size <= 0) return undefined;
+  const isTextual = body.kind === 'json' || body.kind === 'text';
+  const hasBase64Preview = Boolean(body.previewBase64);
+  return {
+    mimeType: mimeFromHeaders(headers),
+    text: isTextual ? (body.text ?? '') : (body.previewBase64 ?? ''),
+    encoding: !isTextual && hasBase64Preview ? 'base64' : undefined,
+  };
+}
+
 function queryString(query: string): { name: string; value: string }[] {
   if (!query) return [];
   return query.split('&').map((pair) => {
@@ -83,24 +100,7 @@ export function toHar(entry: TrafficEntry): string {
             queryString: queryString(entry.query),
             headersSize: -1,
             bodySize: entry.requestBody.size,
-            postData:
-              entry.requestBody.size > 0
-                ? {
-                    mimeType: mimeFromHeaders(entry.requestHeaders),
-                    text:
-                      entry.requestBody.kind === 'json' || entry.requestBody.kind === 'text'
-                        ? (entry.requestBody.text ?? '')
-                        : entry.requestBody.previewBase64
-                          ? entry.requestBody.previewBase64
-                          : '',
-                    encoding:
-                      entry.requestBody.kind === 'binary' || entry.requestBody.kind === 'image'
-                        ? entry.requestBody.previewBase64
-                          ? 'base64'
-                          : undefined
-                        : undefined,
-                  }
-                : undefined,
+            postData: harPostData(entry.requestBody, entry.requestHeaders),
           },
           response: {
             status: entry.status,

@@ -1,4 +1,5 @@
-import type { HttpMethod, ProbeType, ResourceType, StatusClass } from '@/entities/traffic/types';
+import type { ProbeType, ResourceType } from '@/entities/traffic/types';
+
 import type {
   CaptureModeFilterValue,
   MethodFilterValue,

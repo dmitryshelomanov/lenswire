@@ -1,9 +1,6 @@
-import type { VariantProps } from 'class-variance-authority';
-
 import type { HttpMethod } from '@/entities/traffic/types';
-import { badgeVariants } from '@/shared/ui/badge';
 
-type BadgeVariant = NonNullable<VariantProps<typeof badgeVariants>['variant']>;
+type BadgeVariant = 'default' | 'outline' | 'success' | 'warning' | 'danger' | 'info';
 
 export function methodBadgeVariant(method: HttpMethod): BadgeVariant {
   switch (method) {

@@ -7,15 +7,15 @@ import { Button } from '@/shared/ui/button';
 import { Icon } from '@/shared/ui/icon';
 import { Text } from '@/shared/ui/text';
 
-import { CAPTURE_MODES, SCHEMES, STATUS_CLASSES } from './constants';
-import { FilterChip } from './filter-chip';
-import { FilterSection } from './filter-section';
+import { CAPTURE_MODES, SCHEMES, STATUS_CLASSES } from '../../lib/traffic-toolbar/constants';
 import type {
   CaptureModeFilterValue,
   MoreFiltersPatch,
   SchemeFilterValue,
   StatusFilterValue,
-} from './types';
+} from '../../lib/traffic-toolbar/types';
+import { FilterChip } from './filter-chip';
+import { FilterSection } from './filter-section';
 
 export function MoreFilters({
   active,

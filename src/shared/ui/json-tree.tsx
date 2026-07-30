@@ -154,15 +154,3 @@ function valueKind(
   if (typeof value === 'object') return 'object';
   return typeof value as 'boolean' | 'number' | 'string';
 }
-
-/** Parse JSON text for the tree; returns null if not valid JSON object/array. */
-export function parseJsonTreeValue(text: string): unknown | null {
-  const trimmed = text.trim();
-  if (!trimmed) return null;
-  if (!(trimmed.startsWith('{') || trimmed.startsWith('['))) return null;
-  try {
-    return JSON.parse(trimmed) as unknown;
-  } catch {
-    return null;
-  }
-}

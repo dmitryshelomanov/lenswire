@@ -2,7 +2,7 @@ import { View } from 'react-native';
 
 import { Text } from '@/shared/ui/text';
 
-import type { TrafficFilterOption } from './types';
+import type { TrafficFilterOption } from '../../lib/traffic-toolbar/types';
 import { FilterChip } from './filter-chip';
 
 export function FilterSection({

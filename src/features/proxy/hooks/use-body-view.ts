@@ -1,7 +1,7 @@
 import * as React from 'react';
 
 import type { TrafficBody } from '@/entities/traffic/types';
-import { parseJsonTreeValue } from '@/shared/ui/json-tree';
+import { parseJsonTreeValue } from '@/shared/lib/parse-json-tree-value';
 
 import { looksLikeJson, prettyJsonText } from '../lib/body-text';
 import { useCopiedFeedback } from './use-copied-feedback';

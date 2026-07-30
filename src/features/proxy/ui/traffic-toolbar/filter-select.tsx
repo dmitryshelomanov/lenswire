@@ -7,7 +7,7 @@ import { Button } from '@/shared/ui/button';
 import { Icon } from '@/shared/ui/icon';
 import { Text } from '@/shared/ui/text';
 
-import type { TrafficFilterOption } from './types';
+import type { TrafficFilterOption } from '../../lib/traffic-toolbar/types';
 
 export function FilterSelect({
   title,

@@ -5,7 +5,7 @@ import type { ProbeScheme, ProbeType } from '@/entities/traffic/types';
 import { Button } from '@/shared/ui/button';
 import { Text } from '@/shared/ui/text';
 
-import { PROBE_OPTIONS } from './constants';
+import { PROBE_OPTIONS } from '../../lib/traffic-toolbar/constants';
 import { FilterChip } from './filter-chip';
 
 export function ProbeTypeModal({

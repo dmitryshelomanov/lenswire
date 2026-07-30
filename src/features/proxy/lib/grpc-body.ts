@@ -18,6 +18,10 @@ const TRAILER_FLAG = 0x80;
 const COMPRESSED_FLAG = 0x01;
 const DEFAULT_MAX_DEPTH = 5;
 const DEFAULT_MAX_STRINGS = 200;
+const WIRE_VARINT = 0;
+const WIRE_64BIT = 1;
+const WIRE_LENGTH_DELIMITED = 2;
+const WIRE_32BIT = 5;
 
 export function base64ToUint8Array(base64: string): Uint8Array {
   const normalized = base64.replace(/[^A-Za-z0-9+/=]/g, '');
@@ -129,26 +133,26 @@ export function harvestProtobufStringsWithLimits(
       i = tag.next;
       const wireType = tag.value & 0x07;
 
-      if (wireType === 0) {
+      if (wireType === WIRE_VARINT) {
         // varint
         const v = readVarint(bytes, i);
         if (!v) break;
         i = v.next;
         continue;
       }
-      if (wireType === 1) {
+      if (wireType === WIRE_64BIT) {
         // 64-bit
         if (i + 8 > bytes.length) break;
         i += 8;
         continue;
       }
-      if (wireType === 5) {
+      if (wireType === WIRE_32BIT) {
         // 32-bit
         if (i + 4 > bytes.length) break;
         i += 4;
         continue;
       }
-      if (wireType === 2) {
+      if (wireType === WIRE_LENGTH_DELIMITED) {
         // length-delimited
         const len = readVarint(bytes, i);
         if (!len) break;
@@ -178,7 +182,12 @@ function looksLikeProtobuf(bytes: Uint8Array): boolean {
   const tag = readVarint(bytes, 0);
   if (!tag) return false;
   const wireType = tag.value & 0x07;
-  return wireType === 0 || wireType === 1 || wireType === 2 || wireType === 5;
+  return (
+    wireType === WIRE_VARINT ||
+    wireType === WIRE_64BIT ||
+    wireType === WIRE_LENGTH_DELIMITED ||
+    wireType === WIRE_32BIT
+  );
 }
 
 function tryPrintableUtf8(bytes: Uint8Array, minLength: number): string | null {

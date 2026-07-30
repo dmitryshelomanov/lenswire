@@ -7,13 +7,13 @@ import { Icon } from '@/shared/ui/icon';
 import { Input } from '@/shared/ui/input';
 import { Text } from '@/shared/ui/text';
 
+import { METHODS, RESOURCE_TYPES } from '../../lib/traffic-toolbar/constants';
+import { hasAdvancedFilters, optionLabel } from '../../lib/traffic-toolbar/helpers';
+import type { MethodFilterValue, SchemeFilterValue } from '../../lib/traffic-toolbar/types';
 import { useProxyEntries, useProxyFilters, useProxyStatus } from '../../store';
-import { METHODS, RESOURCE_TYPES } from './constants';
-import { hasAdvancedFilters, optionLabel } from './helpers';
 import { FilterSelect } from './filter-select';
 import { MoreFilters } from './more-filters';
 import { ProbeTypeModal } from './probe-type-modal';
-import type { MethodFilterValue, SchemeFilterValue } from './types';
 
 type Props = {
   showControls?: boolean;

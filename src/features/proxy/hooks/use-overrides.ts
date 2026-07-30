@@ -3,26 +3,9 @@ import * as React from 'react';
 import type { OverrideKind, OverrideRule, TrafficEntry } from '@/entities/traffic/types';
 import { getOverrides, setOverrides } from '@/shared/api/native-proxy';
 
-function newId(): string {
-  return `ovr_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
-}
+import { contentTypeFromHeaders, headersFromEntry, newOverrideId } from '../lib/override-seed';
 
-const MANAGED_HEADER_NAMES = new Set(['content-type', 'content-length', 'transfer-encoding']);
-
-export function contentTypeFromHeaders(headers: Record<string, string>): string {
-  const entry = Object.entries(headers).find(([key]) => key.toLowerCase() === 'content-type');
-  return entry?.[1] ?? 'application/json';
-}
-
-/** Seed override headers from a capture, excluding hop-by-hop / content-type (dedicated field). */
-export function headersFromEntry(headers: Record<string, string>): Record<string, string> {
-  const out: Record<string, string> = {};
-  for (const [key, value] of Object.entries(headers)) {
-    if (MANAGED_HEADER_NAMES.has(key.toLowerCase())) continue;
-    out[key] = value;
-  }
-  return out;
-}
+export { contentTypeFromHeaders, headersFromEntry } from '../lib/override-seed';
 
 /** Overrides need a decrypted HTTP exchange (not CONNECT tunnel passthrough). */
 export function canCreateOverride(entry: TrafficEntry): boolean {
@@ -40,7 +23,7 @@ export function ruleFromEntry(
 ): OverrideRule {
   const isResponse = kind === 'response';
   return {
-    id: newId(),
+    id: newOverrideId(),
     enabled: overrides?.enabled ?? true,
     kind,
     method: entry.method,

@@ -24,6 +24,9 @@ import {
 } from '@/shared/api/native-proxy';
 import { loadJson, saveJson } from '@/shared/lib/safe-async-storage';
 
+import { createRuntimePolling } from './runtime-polling';
+import { createRuntimeSlice } from './runtime-store';
+
 const PINNED_HOSTS_KEY = 'lenswire.pinnedHosts';
 
 const DEFAULT_SETTINGS: ProxySettings = {
@@ -57,50 +60,27 @@ type ControlSlice = {
   probing: boolean;
 };
 
-type CertificateSlice = {
+type CertificateState = {
   certificate: CertificateInfo;
   busy: boolean;
 };
 
-function createSlice<T>(initial: T) {
-  let snapshot = initial;
-  const listeners = new Set<() => void>();
-
-  return {
-    subscribe(listener: () => void): () => void {
-      listeners.add(listener);
-      return () => {
-        listeners.delete(listener);
-      };
-    },
-    getSnapshot(): T {
-      return snapshot;
-    },
-    set(next: T): void {
-      if (Object.is(next, snapshot)) return;
-      snapshot = next;
-      listeners.forEach((listener) => listener());
-    },
-  };
-}
-
-const controlSlice = createSlice<ControlSlice>({
+const controlSlice = createRuntimeSlice<ControlSlice>({
   status: 'stopped',
   recording: true,
   probing: false,
 });
 
-const entriesSlice = createSlice<TrafficEntry[]>([]);
-const filtersSlice = createSlice<TrafficFilters>(DEFAULT_FILTERS);
-const settingsSlice = createSlice<ProxySettings>(DEFAULT_SETTINGS);
-const certificateSlice = createSlice<CertificateSlice>({
+const entriesSlice = createRuntimeSlice<TrafficEntry[]>([]);
+const filtersSlice = createRuntimeSlice<TrafficFilters>(DEFAULT_FILTERS);
+const settingsSlice = createRuntimeSlice<ProxySettings>(DEFAULT_SETTINGS);
+const certificateSlice = createRuntimeSlice<CertificateState>({
   certificate: DEFAULT_CERTIFICATE,
   busy: false,
 });
-const pinsSlice = createSlice<string[]>([]);
+const pinsSlice = createRuntimeSlice<string[]>([]);
 
 let bootstrapped = false;
-let pollTimer: ReturnType<typeof setInterval> | null = null;
 let hintShown = false;
 
 function errorMessage(error: unknown): string {
@@ -146,7 +126,7 @@ function patchControl(patch: Partial<ControlSlice>): void {
     return;
   }
   controlSlice.set(next);
-  syncPoll();
+  polling.sync(next.status === 'listening');
 }
 
 function refreshCaptures(): void {
@@ -157,21 +137,11 @@ function refreshCaptures(): void {
   }
 }
 
-function syncPoll(): void {
-  const { status } = controlSlice.getSnapshot();
-  if (status === 'listening') {
-    if (pollTimer) return;
-    pollTimer = setInterval(() => {
-      if (!controlSlice.getSnapshot().recording) return;
-      refreshCaptures();
-    }, 1200);
-    return;
-  }
-  if (pollTimer) {
-    clearInterval(pollTimer);
-    pollTimer = null;
-  }
-}
+const polling = createRuntimePolling(
+  refreshCaptures,
+  () => controlSlice.getSnapshot().recording,
+  1200,
+);
 
 function loadPins(): void {
   loadJson(PINNED_HOSTS_KEY, parsePinnedHosts)
@@ -200,7 +170,7 @@ export function ensureProxyRuntime(): void {
     });
   });
   loadPins();
-  syncPoll();
+  polling.sync(controlSlice.getSnapshot().status === 'listening');
 }
 
 export async function start(): Promise<void> {
