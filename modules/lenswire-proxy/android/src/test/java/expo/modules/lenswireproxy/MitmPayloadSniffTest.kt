@@ -75,10 +75,11 @@ class MitmPayloadSniffTest {
   }
 
   @Test
-  fun detectsEmptyAndAborts() {
+  fun detectsEmptyAndDoesNotAbort() {
     val result = MitmPayloadSniff.analyze(ByteArray(0))
     assertEquals(MitmPayloadSniff.Guess.EMPTY, result.guess)
-    assertTrue(MitmPayloadSniff.shouldAbortMitm(result, ByteArray(0)))
+    // Empty peek must continue into blocking HTTP read (late GET / images).
+    assertFalse(MitmPayloadSniff.shouldAbortMitm(result, ByteArray(0)))
   }
 
   @Test

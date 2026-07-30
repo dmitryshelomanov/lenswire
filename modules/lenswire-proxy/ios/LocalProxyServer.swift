@@ -4,13 +4,15 @@ import Network
 // Keep in sync with targets/network-packet-tunnel/LocalProxyServer.swift
 final class LocalProxyServer {
   private static let maxHttpMessageBytes = 2 * 1024 * 1024
+  private static let mitmMaxKeepAliveRequests = 64
 
   private var listener: NWListener?
   private let queue = DispatchQueue(label: "com.lenswire.localproxy", qos: .userInitiated)
   /// Separate from `queue` so Secure Transport waits do not deadlock NW receive callbacks.
   private let mitmQueue = DispatchQueue(label: "com.lenswire.mitm", qos: .userInitiated, attributes: .concurrent)
   private let bypassLock = NSLock()
-  private var mitmBypassHosts = Set<String>()
+  /// Session MITM bypass: host lowercase → cause reasonCode that first triggered bypass.
+  private var mitmBypassHosts = [String: String]()
 
   func start() throws {
     guard listener == nil else { return }
@@ -30,13 +32,22 @@ final class LocalProxyServer {
   private func isBypassed(_ host: String) -> Bool {
     bypassLock.lock()
     defer { bypassLock.unlock() }
-    return mitmBypassHosts.contains(host.lowercased())
+    return mitmBypassHosts[host.lowercased()] != nil
   }
 
-  private func addBypass(_ host: String) {
+  private func bypassCause(for host: String) -> String? {
     bypassLock.lock()
     defer { bypassLock.unlock() }
-    mitmBypassHosts.insert(host.lowercased())
+    return mitmBypassHosts[host.lowercased()]
+  }
+
+  private func addBypass(_ host: String, cause: String) {
+    bypassLock.lock()
+    defer { bypassLock.unlock() }
+    let key = host.lowercased()
+    if mitmBypassHosts[key] == nil {
+      mitmBypassHosts[key] = cause
+    }
   }
 
   private func handle(connection: NWConnection) {
@@ -183,7 +194,10 @@ final class LocalProxyServer {
       scheme: scheme,
       host: host,
       upstreamURL: upstreamURL,
-      client: client
+      client: client,
+      onBypassHost: { [weak self] bypassHost, cause in
+        self?.addBypass(bypassHost, cause: cause)
+      }
     ) { capture in
       var entry = capture
       entry["scheme"] = scheme
@@ -229,12 +243,15 @@ final class LocalProxyServer {
         let decryptEnabled = LenswireShared.httpsDecryptEnabled
         let caReady = CertificateAuthority.shared.isReady()
         let bypassed = self.isBypassed(effectiveHost)
+        let sessionBypassCause = bypassed ? self.bypassCause(for: effectiveHost) : nil
         let clientHelloExpected = !peek.bytes.isEmpty
+        let alpnOk = Self.alpnAllowsHttp11Mitm(tlsMeta?.alpnProtocols)
         let canMitm = decryptEnabled &&
           caReady &&
           !TlsSni.isIpLiteral(effectiveHost) &&
           !bypassed &&
-          clientHelloExpected
+          clientHelloExpected &&
+          alpnOk
 
         let reasonCode: String?
         if !decryptEnabled {
@@ -247,6 +264,8 @@ final class LocalProxyServer {
           reasonCode = "ip_no_sni"
         } else if !clientHelloExpected {
           reasonCode = "no_client_hello"
+        } else if !alpnOk {
+          reasonCode = "alpn_no_http11"
         } else {
           reasonCode = nil
         }
@@ -264,7 +283,8 @@ final class LocalProxyServer {
             hostnameConfidence: hostnameConfidence,
             sniHostname: sniHostname,
             tlsMeta: tlsMeta,
-            clientHelloBytes: clientHelloSize
+            clientHelloBytes: clientHelloSize,
+            bypassCause: bypassed ? sessionBypassCause : nil
           )
           return
         }
@@ -303,7 +323,7 @@ final class LocalProxyServer {
           )
         case .handshakeRejected(let detail):
           // Client already saw (or rejected) our MITM cert — ClientHello replay is impossible.
-          self.addBypass(effectiveHost)
+          self.addBypass(effectiveHost, cause: "mitm_handshake_failed")
           self.appendTunnelCapture(
             id: UUID().uuidString,
             startedAt: Int(Date().timeIntervalSince1970 * 1000),
@@ -319,11 +339,18 @@ final class LocalProxyServer {
             tlsMeta: tlsMeta,
             clientHelloBytes: clientHelloSize,
             note: detail,
-            peekBytes: nil
+            peekBytes: nil,
+            bypassCause: "mitm_handshake_failed"
           )
           client.cancel()
-        case .hardFailure(let detail, let peekBytes):
-          // Do not passthrough: TLS already started; raw ClientHello replay would desync.
+        case .hardFailure(let detail, let peekBytes, let bypassHost, let reasonCode):
+          // Do not passthrough this socket: TLS already started; ClientHello replay would desync.
+          // Unsupported protocol / post-handshake silence → bypass host so retries go tunnel-only.
+          // Keep reasonCode as-is (do not remap bypassHost=false to mitm_error).
+          let failReason = reasonCode
+          if bypassHost {
+            self.addBypass(effectiveHost, cause: failReason)
+          }
           self.appendTunnelCapture(
             id: UUID().uuidString,
             startedAt: Int(Date().timeIntervalSince1970 * 1000),
@@ -332,14 +359,15 @@ final class LocalProxyServer {
             connectPort: port,
             target: target,
             status: 502,
-            reasonCode: "mitm_error",
+            reasonCode: failReason,
             hostnameSource: hostnameSource,
             hostnameConfidence: hostnameConfidence,
             sniHostname: sniHostname,
             tlsMeta: tlsMeta,
             clientHelloBytes: clientHelloSize,
             note: detail,
-            peekBytes: peekBytes
+            peekBytes: peekBytes,
+            bypassCause: bypassHost ? failReason : nil
           )
           client.cancel()
         }
@@ -351,7 +379,7 @@ final class LocalProxyServer {
     case success
     case failOpenPassthrough
     case handshakeRejected(detail: String?)
-    case hardFailure(detail: String?, peek: Data?)
+    case hardFailure(detail: String?, peek: Data?, bypassHost: Bool, reasonCode: String)
   }
 
   private func runPassthrough(
@@ -366,7 +394,8 @@ final class LocalProxyServer {
     hostnameConfidence: String,
     sniHostname: String?,
     tlsMeta: TlsSni.ClientHelloMeta?,
-    clientHelloBytes: Int
+    clientHelloBytes: Int,
+    bypassCause: String? = nil
   ) {
     let id = UUID().uuidString
     let startedAt = Int(Date().timeIntervalSince1970 * 1000)
@@ -390,7 +419,8 @@ final class LocalProxyServer {
         sniHostname: sniHostname,
         tlsMeta: tlsMeta,
         clientHelloBytes: clientHelloBytes,
-        note: nil
+        note: nil,
+        bypassCause: bypassCause
       )
       Self.relay(from: client, to: upstream, queue: queue)
       Self.relay(from: upstream, to: client, queue: queue)
@@ -414,7 +444,8 @@ final class LocalProxyServer {
           sniHostname: sniHostname,
           tlsMeta: tlsMeta,
           clientHelloBytes: clientHelloBytes,
-          note: sendError.localizedDescription
+          note: sendError.localizedDescription,
+          bypassCause: bypassCause
         )
         client.cancel()
         upstream.cancel()
@@ -435,7 +466,8 @@ final class LocalProxyServer {
         sniHostname: sniHostname,
         tlsMeta: tlsMeta,
         clientHelloBytes: clientHelloBytes,
-        note: nil
+        note: nil,
+        bypassCause: bypassCause
       )
       Self.relay(from: client, to: upstream, queue: self.queue)
       Self.relay(from: upstream, to: client, queue: self.queue)
@@ -457,6 +489,7 @@ final class LocalProxyServer {
   ) -> MitmOutcome {
     var handshakeStarted = false
     var capturedPeek: Data?
+    var handledAny = false
     do {
       let identity = try CertificateAuthority.shared.leafIdentity(for: mitmHost)
       let serverTLS = try TLSBridge(
@@ -468,68 +501,240 @@ final class LocalProxyServer {
       )
       handshakeStarted = true
       try serverTLS.handshake()
+      let negotiatedAlpn = serverTLS.negotiatedAlpn()
+      // Idle timeout after handshake → mitm_no_request + bypass (not during WS relay).
+      serverTLS.throwOnIdleTimeout = true
 
-      // Early sniff: abort only on clear non-HTTP/1.1 (h2, binary, EOF, unsupported method).
-      // Ambiguous printable fragments (e.g. partial "GET") continue into completeHTTPMessage.
+      // Early sniff: abort only on clear non-HTTP/1.1 (h2, binary, unsupported method).
+      // Empty peek continues into completeHTTPMessage (wait for late GET). Ambiguous printable
+      // fragments (e.g. partial "GET") also continue with the peek as prefix.
       let peek = try serverTLS.read()
       capturedPeek = peek
       let sniff = Self.sniffPayload(peek)
       if Self.shouldAbortMitm(sniff, bytes: peek) {
         serverTLS.close()
-        return .hardFailure(detail: Self.formatSniffDetail(sniff, bytes: peek), peek: peek)
-      }
-
-      // Finish one HTTP/1.1 request from the client (peek already consumed).
-      var requestData = peek
-      while true {
-        if Self.containsHeaderEnd(requestData) { break }
-        if requestData.count > 1024 * 1024 { break }
-        let chunk = try serverTLS.read()
-        requestData.append(chunk)
-      }
-      requestData = try Self.completeHTTPMessage(initial: requestData, reader: serverTLS)
-
-      var parsed = Self.parseHTTPRequest(requestData)
-      if !Self.isSupportedHTTPMethod(parsed.method) {
-        let bad = PayloadSniff(
-          guess: .http11,
-          method: parsed.method.uppercased(),
-          firstLine: sniff.firstLine,
-          looksLikeHttp11: true
+        return .hardFailure(
+          detail: Self.formatSniffDetail(sniff, bytes: peek),
+          peek: peek,
+          bypassHost: true,
+          reasonCode: "mitm_unsupported"
         )
-        serverTLS.close()
-        return .hardFailure(detail: Self.formatSniffDetail(bad, bytes: peek), peek: peek)
       }
-      let startedAt = Int(Date().timeIntervalSince1970 * 1000)
-      let id = UUID().uuidString
-      let t0 = Date()
 
-      let upstreamHost = Self.hostFromHeaders(parsed.headers) ?? mitmHost
-      var overrideApplied: String? = nil
-
-      if let responseRule = LenswireShared.findOverride(
-        kind: "response",
-        method: parsed.method,
-        scheme: "https",
-        host: upstreamHost,
-        path: parsed.path,
-        query: parsed.query
-      ) {
-        let mockBody = responseRule.bodyData
-        let mockHeaders = responseRule.responseHeaders
-        var responseBytes = Data()
-        responseBytes.append(contentsOf: "HTTP/1.1 \(responseRule.status) \(HTTPURLResponse.localizedString(forStatusCode: responseRule.status))\r\n".utf8)
-        for (key, value) in mockHeaders {
-          responseBytes.append(contentsOf: "\(key): \(value)\r\n".utf8)
+      var readPrefix = peek
+      for reqIndex in 0..<Self.mitmMaxKeepAliveRequests {
+        let requestData: Data
+        do {
+          requestData = try Self.readOneHTTPRequest(from: serverTLS, prefix: readPrefix)
+        } catch {
+          if case TLSBridge.TLSError.closed = error, !handledAny {
+            serverTLS.close()
+            return .hardFailure(
+              detail: "guess=empty; bytes=0; cause=eof",
+              peek: peek,
+              bypassHost: false,
+              reasonCode: "mitm_no_request"
+            )
+          }
+          if case TLSBridge.TLSError.closed = error, handledAny {
+            serverTLS.close()
+            return .success
+          }
+          if Self.isPostHandshakeReadTimeout(error), handledAny {
+            serverTLS.close()
+            return .success
+          }
+          throw error
         }
-        responseBytes.append(contentsOf: "Content-Length: \(mockBody.count)\r\n".utf8)
-        responseBytes.append(contentsOf: "Connection: close\r\n\r\n".utf8)
-        responseBytes.append(mockBody)
-        try serverTLS.write(responseBytes)
+        readPrefix = Data()
+
+        if requestData.isEmpty || requestData.allSatisfy({
+          $0 == UInt8(ascii: " ") || $0 == UInt8(ascii: "\t") || $0 == UInt8(ascii: "\r") || $0 == UInt8(ascii: "\n")
+        }) {
+          if !handledAny {
+            serverTLS.close()
+            return .hardFailure(
+              detail: "guess=empty; bytes=0; cause=eof",
+              peek: peek,
+              bypassHost: false,
+              reasonCode: "mitm_no_request"
+            )
+          }
+          break
+        }
+
+        var parsed = Self.parseHTTPRequest(requestData)
+        handledAny = true
+        if !Self.isSupportedHTTPMethod(parsed.method) {
+          let bad = PayloadSniff(
+            guess: .http11,
+            method: parsed.method.uppercased(),
+            firstLine: sniff.firstLine,
+            looksLikeHttp11: true
+          )
+          serverTLS.close()
+          return .hardFailure(
+            detail: Self.formatSniffDetail(bad, bytes: peek),
+            peek: peek,
+            bypassHost: true,
+            reasonCode: "mitm_unsupported"
+          )
+        }
+
+        // Request headers received — disable idle timeout during upstream / WS.
+        serverTLS.throwOnIdleTimeout = false
+        if Self.isWebSocketUpgrade(parsed.headers) {
+          let upstreamHost = Self.hostFromHeaders(parsed.headers) ?? mitmHost
+          let startedAt = Int(Date().timeIntervalSince1970 * 1000)
+          let id = UUID().uuidString
+          let requestBytes = Self.buildHTTPRequestData(parsed)
+          return self.relayWebSocketUpgrade(
+            serverTLS: serverTLS,
+            requestBytes: requestBytes,
+            parsed: parsed,
+            upstreamHost: upstreamHost,
+            port: port,
+            useTLS: true,
+            id: id,
+            startedAt: startedAt,
+            connectHost: connectHost,
+            target: target,
+            hostnameSource: Self.hostFromHeaders(parsed.headers) != nil ? "host_header" : hostnameSource,
+            hostnameConfidence: Self.hostFromHeaders(parsed.headers) != nil ? "high" : hostnameConfidence,
+            sniHostname: sniHostname,
+            tlsMeta: tlsMeta,
+            clientHelloBytes: clientHelloBytes,
+            scheme: "https",
+            captureMode: "mitm",
+            tlsNegotiatedAlpn: negotiatedAlpn
+          )
+        }
+
+        let keepAlive = Self.clientWantsKeepAlive(parsed.headers) &&
+          reqIndex < Self.mitmMaxKeepAliveRequests - 1
+        let startedAt = Int(Date().timeIntervalSince1970 * 1000)
+        let id = UUID().uuidString
+        let t0 = Date()
+        let upstreamHost = Self.hostFromHeaders(parsed.headers) ?? mitmHost
+        var overrideApplied: String? = nil
+        let hostHdr = Self.hostFromHeaders(parsed.headers) != nil
+        let hs = hostHdr ? "host_header" : hostnameSource
+        let hc = hostHdr ? "high" : hostnameConfidence
+
+        if let responseRule = LenswireShared.findOverride(
+          kind: "response",
+          method: parsed.method,
+          scheme: "https",
+          host: upstreamHost,
+          path: parsed.path,
+          query: parsed.query
+        ) {
+          let mockBody = responseRule.bodyData
+          let mockHeaders = responseRule.responseHeaders
+          let responseBytes = Self.encodeHTTP11Response(
+            status: responseRule.status,
+            headers: mockHeaders,
+            body: mockBody,
+            connectionClose: !keepAlive
+          )
+          try serverTLS.write(responseBytes)
+
+          let totalMs = max(1, Int(Date().timeIntervalSince(t0) * 1000))
+          let reqContentType = parsed.headers.first { $0.key.lowercased() == "content-type" }?.value
+          let reqContentEncoding = parsed.headers.first { $0.key.lowercased() == "content-encoding" }?.value
+          LenswireShared.appendCapture([
+            "id": id,
+            "startedAt": startedAt,
+            "method": parsed.method,
+            "scheme": "https",
+            "host": upstreamHost,
+            "path": parsed.path,
+            "query": parsed.query,
+            "status": responseRule.status,
+            "requestHeaders": parsed.headers,
+            "responseHeaders": mockHeaders,
+            "requestBody": LenswireShared.classifyBody(
+              parsed.body,
+              contentType: reqContentType,
+              contentEncoding: reqContentEncoding
+            ),
+            "responseBody": LenswireShared.classifyBody(
+              mockBody,
+              contentType: responseRule.contentType.isEmpty ? nil : responseRule.contentType
+            ),
+            "timing": Self.timingSample(
+              connectMs: totalMs,
+              tlsMs: totalMs,
+              ttfbMs: totalMs,
+              downloadMs: totalMs,
+              totalMs: totalMs
+            ),
+            "overrideApplied": "response",
+            "reasonCode": "decrypted",
+            "hostnameSource": hs,
+            "hostnameConfidence": hc,
+            "sniHostname": sniHostname ?? NSNull(),
+            "rawTarget": target,
+            "connectTarget": target,
+            "connectHost": connectHost,
+            "connectPort": Int(port),
+            "effectiveHost": upstreamHost,
+            "captureMode": "mitm",
+            "httpPayloadAvailable": true,
+            "captureSummary": "Response overridden (full mock); upstream not contacted.",
+            "tlsClientHelloBytes": clientHelloBytes,
+            "tlsRecordVersion": tlsMeta?.recordVersion ?? NSNull(),
+            "tlsClientVersion": tlsMeta?.clientVersion ?? NSNull(),
+            "tlsAlpnProtocols": tlsMeta?.alpnProtocols ?? [],
+            "tlsSniPresent": tlsMeta?.sniPresent ?? (!(sniHostname ?? "").isEmpty),
+            "tlsNegotiatedAlpn": negotiatedAlpn,
+            "upstreamHttpVersion": NSNull(),
+          ])
+          if !keepAlive {
+            serverTLS.close()
+            return .success
+          }
+          serverTLS.throwOnIdleTimeout = true
+          continue
+        }
+
+        if let requestRule = LenswireShared.findOverride(
+          kind: "request",
+          method: parsed.method,
+          scheme: "https",
+          host: upstreamHost,
+          path: parsed.path,
+          query: parsed.query
+        ) {
+          let rewritten = LenswireShared.rewriteRequest(headers: parsed.headers, rule: requestRule)
+          parsed.headers = rewritten.headers
+          parsed.body = rewritten.body
+          overrideApplied = "request"
+        }
+
+        let upstreamResponse = try Self.fetchUpstreamHTTPS(
+          host: upstreamHost,
+          port: port,
+          method: parsed.method,
+          pathWithQuery: parsed.pathWithQuery,
+          headers: parsed.headers,
+          body: parsed.body
+        )
 
         let totalMs = max(1, Int(Date().timeIntervalSince(t0) * 1000))
+        let responseBytes = Self.encodeHTTP11Response(
+          status: upstreamResponse.status,
+          headers: upstreamResponse.headers,
+          body: upstreamResponse.body,
+          connectionClose: !keepAlive
+        )
+        try serverTLS.write(responseBytes)
+
         let reqContentType = parsed.headers.first { $0.key.lowercased() == "content-type" }?.value
         let reqContentEncoding = parsed.headers.first { $0.key.lowercased() == "content-encoding" }?.value
+        let resContentType = upstreamResponse.headers.first { $0.key.lowercased() == "content-type" }?.value
+        let resContentEncoding = upstreamResponse.headers.first { $0.key.lowercased() == "content-encoding" }?.value
+
         LenswireShared.appendCapture([
           "id": id,
           "startedAt": startedAt,
@@ -538,15 +743,19 @@ final class LocalProxyServer {
           "host": upstreamHost,
           "path": parsed.path,
           "query": parsed.query,
-          "status": responseRule.status,
+          "status": upstreamResponse.status,
           "requestHeaders": parsed.headers,
-          "responseHeaders": mockHeaders,
+          "responseHeaders": upstreamResponse.headers,
           "requestBody": LenswireShared.classifyBody(
             parsed.body,
             contentType: reqContentType,
             contentEncoding: reqContentEncoding
           ),
-          "responseBody": LenswireShared.classifyBody(mockBody, contentType: responseRule.contentType.isEmpty ? nil : responseRule.contentType),
+          "responseBody": LenswireShared.classifyBody(
+            upstreamResponse.body,
+            contentType: resContentType,
+            contentEncoding: resContentEncoding
+          ),
           "timing": Self.timingSample(
             connectMs: totalMs,
             tlsMs: totalMs,
@@ -554,10 +763,10 @@ final class LocalProxyServer {
             downloadMs: totalMs,
             totalMs: totalMs
           ),
-          "overrideApplied": "response",
+          "overrideApplied": overrideApplied ?? NSNull(),
           "reasonCode": "decrypted",
-          "hostnameSource": Self.hostFromHeaders(parsed.headers) != nil ? "host_header" : hostnameSource,
-          "hostnameConfidence": Self.hostFromHeaders(parsed.headers) != nil ? "high" : hostnameConfidence,
+          "hostnameSource": hs,
+          "hostnameConfidence": hc,
           "sniHostname": sniHostname ?? NSNull(),
           "rawTarget": target,
           "connectTarget": target,
@@ -566,108 +775,24 @@ final class LocalProxyServer {
           "effectiveHost": upstreamHost,
           "captureMode": "mitm",
           "httpPayloadAvailable": true,
-          "captureSummary": "Response overridden (full mock); upstream not contacted.",
+          "captureSummary": overrideApplied == "request"
+            ? "Request body overridden before upstream; TLS decrypted via MITM."
+            : "TLS decrypted via MITM; full HTTP payload available.",
           "tlsClientHelloBytes": clientHelloBytes,
           "tlsRecordVersion": tlsMeta?.recordVersion ?? NSNull(),
           "tlsClientVersion": tlsMeta?.clientVersion ?? NSNull(),
           "tlsAlpnProtocols": tlsMeta?.alpnProtocols ?? [],
           "tlsSniPresent": tlsMeta?.sniPresent ?? (!(sniHostname ?? "").isEmpty),
+          "tlsNegotiatedAlpn": negotiatedAlpn,
+          "upstreamHttpVersion": "HTTP/1.1",
         ])
-        serverTLS.close()
-        return .success
+
+        if !keepAlive {
+          serverTLS.close()
+          return .success
+        }
+        serverTLS.throwOnIdleTimeout = true
       }
-
-      if let requestRule = LenswireShared.findOverride(
-        kind: "request",
-        method: parsed.method,
-        scheme: "https",
-        host: upstreamHost,
-        path: parsed.path,
-        query: parsed.query
-      ) {
-        let rewritten = LenswireShared.rewriteRequest(headers: parsed.headers, rule: requestRule)
-        parsed.headers = rewritten.headers
-        parsed.body = rewritten.body
-        overrideApplied = "request"
-      }
-
-      let upstreamResponse = try Self.fetchUpstreamHTTPS(
-        host: upstreamHost,
-        port: port,
-        method: parsed.method,
-        pathWithQuery: parsed.pathWithQuery,
-        headers: parsed.headers,
-        body: parsed.body
-      )
-
-      let totalMs = max(1, Int(Date().timeIntervalSince(t0) * 1000))
-      var responseBytes = Data()
-      responseBytes.append(contentsOf: "HTTP/1.1 \(upstreamResponse.status) \(HTTPURLResponse.localizedString(forStatusCode: upstreamResponse.status))\r\n".utf8)
-      for (key, value) in upstreamResponse.headers {
-        if key.lowercased() == "transfer-encoding" { continue }
-        if key.lowercased() == "content-length" { continue }
-        responseBytes.append(contentsOf: "\(key): \(value)\r\n".utf8)
-      }
-      responseBytes.append(contentsOf: "Content-Length: \(upstreamResponse.body.count)\r\n".utf8)
-      responseBytes.append(contentsOf: "Connection: close\r\n\r\n".utf8)
-      responseBytes.append(upstreamResponse.body)
-      try serverTLS.write(responseBytes)
-
-      let reqContentType = parsed.headers.first { $0.key.lowercased() == "content-type" }?.value
-      let reqContentEncoding = parsed.headers.first { $0.key.lowercased() == "content-encoding" }?.value
-      let resContentType = upstreamResponse.headers.first { $0.key.lowercased() == "content-type" }?.value
-      let resContentEncoding = upstreamResponse.headers.first { $0.key.lowercased() == "content-encoding" }?.value
-
-      LenswireShared.appendCapture([
-        "id": id,
-        "startedAt": startedAt,
-        "method": parsed.method,
-        "scheme": "https",
-        "host": upstreamHost,
-        "path": parsed.path,
-        "query": parsed.query,
-        "status": upstreamResponse.status,
-        "requestHeaders": parsed.headers,
-        "responseHeaders": upstreamResponse.headers,
-        "requestBody": LenswireShared.classifyBody(
-          parsed.body,
-          contentType: reqContentType,
-          contentEncoding: reqContentEncoding
-        ),
-        "responseBody": LenswireShared.classifyBody(
-          upstreamResponse.body,
-          contentType: resContentType,
-          contentEncoding: resContentEncoding
-        ),
-        "timing": Self.timingSample(
-          connectMs: totalMs,
-          tlsMs: totalMs,
-          ttfbMs: totalMs,
-          downloadMs: totalMs,
-          totalMs: totalMs
-        ),
-        "overrideApplied": overrideApplied ?? NSNull(),
-        "reasonCode": "decrypted",
-        "hostnameSource": Self.hostFromHeaders(parsed.headers) != nil ? "host_header" : hostnameSource,
-        "hostnameConfidence": Self.hostFromHeaders(parsed.headers) != nil ? "high" : hostnameConfidence,
-        "sniHostname": sniHostname ?? NSNull(),
-        "rawTarget": target,
-        "connectTarget": target,
-        "connectHost": connectHost,
-        "connectPort": Int(port),
-        "effectiveHost": upstreamHost,
-        "captureMode": "mitm",
-        "httpPayloadAvailable": true,
-        "captureSummary": overrideApplied == "request"
-          ? "Request body overridden before upstream; TLS decrypted via MITM."
-          : "TLS decrypted via MITM; full HTTP payload available.",
-        "tlsClientHelloBytes": clientHelloBytes,
-        "tlsRecordVersion": tlsMeta?.recordVersion ?? NSNull(),
-        "tlsClientVersion": tlsMeta?.clientVersion ?? NSNull(),
-        "tlsAlpnProtocols": tlsMeta?.alpnProtocols ?? [],
-        "tlsSniPresent": tlsMeta?.sniPresent ?? (!(sniHostname ?? "").isEmpty),
-      ])
-
       serverTLS.close()
       return .success
     } catch {
@@ -675,10 +800,29 @@ final class LocalProxyServer {
       if !handshakeStarted {
         return .failOpenPassthrough
       }
+      if case TLSBridge.TLSError.closed = error, !handledAny {
+        return .hardFailure(
+          detail: "guess=empty; bytes=0; cause=eof",
+          peek: capturedPeek,
+          bypassHost: false,
+          reasonCode: "mitm_no_request"
+        )
+      }
+      if Self.isPostHandshakeReadTimeout(error) {
+        if handledAny {
+          return .success
+        }
+        return .hardFailure(
+          detail: "guess=empty; bytes=0; cause=timeout",
+          peek: capturedPeek,
+          bypassHost: true,
+          reasonCode: "mitm_no_request"
+        )
+      }
       if Self.isTlsHandshakeFailure(error) {
         return .handshakeRejected(detail: detail)
       }
-      return .hardFailure(detail: detail, peek: capturedPeek)
+      return .hardFailure(detail: detail, peek: capturedPeek, bypassHost: false, reasonCode: "mitm_error")
     }
   }
 
@@ -841,6 +985,7 @@ final class LocalProxyServer {
     host: String,
     upstreamURL: URL,
     client: NWConnection,
+    onBypassHost: ((String, String) -> Void)? = nil,
     onCapture: @escaping ([String: Any]) -> Void
   ) {
     let startedAt = Int(Date().timeIntervalSince1970 * 1000)
@@ -849,6 +994,35 @@ final class LocalProxyServer {
     var parsed = parseHTTPRequest(requestData)
     let captureScheme = scheme == "https" ? "https" : "http"
     let captureHost = host.isEmpty ? (upstreamURL.host ?? "unknown") : host
+
+    if isWebSocketUpgrade(parsed.headers) {
+      let requestBytes: Data
+      if rawTarget.hasPrefix("http://") || rawTarget.hasPrefix("https://") {
+        requestBytes = Self.buildHTTPRequestData(parsed, requestTarget: rawTarget)
+      } else {
+        requestBytes = Self.buildHTTPRequestData(parsed)
+      }
+      let upstreamPort = UInt16(upstreamURL.port ?? (captureScheme == "https" ? 443 : 80))
+      // Relayed on a background queue so we don't block the accept loop forever.
+      // Capture is emitted inside relay once headers arrive.
+      let relayQueue = DispatchQueue(label: "lenswire.ws.http.\(id)")
+      relayQueue.async {
+        _ = Self.relayPlainWebSocketUpgrade(
+          client: client,
+          requestBytes: requestBytes,
+          parsed: parsed,
+          upstreamHost: captureHost,
+          port: upstreamPort,
+          useTLS: captureScheme == "https",
+          id: id,
+          startedAt: startedAt,
+          rawTarget: rawTarget,
+          scheme: captureScheme,
+          onCapture: onCapture
+        )
+      }
+      return
+    }
 
     if let responseRule = LenswireShared.findOverride(
       kind: "response",
@@ -1043,14 +1217,72 @@ final class LocalProxyServer {
   }
 
   private static func isTlsHandshakeFailure(_ error: Error) -> Bool {
+    // Do NOT match generic "protocol" — that false-positives HTTP/2 unsupported-protocol paths.
     let message = error.localizedDescription.lowercased()
     let name = String(describing: type(of: error)).lowercased()
+    if message.contains("unsupported https request method") { return false }
     return name.contains("ssl")
       || message.contains("handshake")
       || message.contains("certificate")
-      || message.contains("trust")
-      || message.contains("protocol")
+      || message.contains("trust anchor")
+      || message.contains("trustmanager")
       || message.contains("tls")
+  }
+
+  private static func clientWantsKeepAlive(_ headers: [String: String]) -> Bool {
+    if let connection = headers.first(where: { $0.key.lowercased() == "connection" })?.value
+      .lowercased(),
+      connection.contains("close") {
+      return false
+    }
+    return true
+  }
+
+  private static func encodeHTTP11Response(
+    status: Int,
+    headers: [String: String],
+    body: Data,
+    connectionClose: Bool
+  ) -> Data {
+    var responseBytes = Data()
+    responseBytes.append(
+      contentsOf: "HTTP/1.1 \(status) \(HTTPURLResponse.localizedString(forStatusCode: status))\r\n".utf8
+    )
+    for (key, value) in headers {
+      let lower = key.lowercased()
+      if lower == "transfer-encoding" || lower == "content-length" || lower == "connection" {
+        continue
+      }
+      responseBytes.append(contentsOf: "\(key): \(value)\r\n".utf8)
+    }
+    responseBytes.append(contentsOf: "Content-Length: \(body.count)\r\n".utf8)
+    responseBytes.append(
+      contentsOf: "Connection: \(connectionClose ? "close" : "keep-alive")\r\n\r\n".utf8
+    )
+    responseBytes.append(body)
+    return responseBytes
+  }
+
+  private static func readOneHTTPRequest(from serverTLS: TLSBridge, prefix: Data) throws -> Data {
+    var requestData = prefix
+    if requestData.isEmpty {
+      requestData = try serverTLS.read()
+    }
+    while true {
+      if containsHeaderEnd(requestData) { break }
+      if requestData.count > 1024 * 1024 { break }
+      let chunk = try serverTLS.read()
+      requestData.append(chunk)
+    }
+    return try completeHTTPMessage(initial: requestData, reader: serverTLS)
+  }
+
+  private static func isPostHandshakeReadTimeout(_ error: Error) -> Bool {
+    // Only client idle after MITM handshake — not upstream URLSession timeouts.
+    if case TLSBridge.TLSError.timedOut = error {
+      return true
+    }
+    return false
   }
 
   private func readClientHello(client: NWConnection, timeoutMs: Int = 12_000) -> TlsSni.PeekResult {
@@ -1081,7 +1313,8 @@ final class LocalProxyServer {
     tlsMeta: TlsSni.ClientHelloMeta?,
     clientHelloBytes: Int,
     note: String?,
-    peekBytes: Data? = nil
+    peekBytes: Data? = nil,
+    bypassCause: String? = nil
   ) {
     let bodyText: String
     if let note, !note.isEmpty {
@@ -1098,7 +1331,7 @@ final class LocalProxyServer {
     } else {
       requestBody = ["kind": "empty", "size": 0]
     }
-    LenswireShared.appendCapture([
+    var fields: [String: Any] = [
       "id": id,
       "startedAt": startedAt,
       "method": "CONNECT",
@@ -1123,16 +1356,41 @@ final class LocalProxyServer {
       "effectiveHost": host,
       "captureMode": "tunnel",
       "httpPayloadAvailable": false,
-      "captureSummary": Self.summaryForReason(reasonCode, detail: note),
+      "captureSummary": Self.summaryForReason(reasonCode, detail: note, bypassCause: bypassCause),
       "tlsClientHelloBytes": clientHelloBytes,
       "tlsRecordVersion": tlsMeta?.recordVersion ?? NSNull(),
       "tlsClientVersion": tlsMeta?.clientVersion ?? NSNull(),
       "tlsAlpnProtocols": tlsMeta?.alpnProtocols ?? [],
       "tlsSniPresent": tlsMeta?.sniPresent ?? (!(sniHostname ?? "").isEmpty),
-    ])
+    ]
+    if let bypassCause, !bypassCause.isEmpty {
+      fields["bypassCause"] = bypassCause
+    }
+    LenswireShared.appendCapture(fields)
   }
 
-  private static func summaryForReason(_ reasonCode: String, detail: String? = nil) -> String {
+  private static func bypassCauseLabel(_ cause: String?) -> String? {
+    guard let cause, !cause.isEmpty else { return nil }
+    switch cause {
+    case "mitm_handshake_failed":
+      return "trust fail"
+    case "mitm_unsupported":
+      return "unsupported protocol"
+    case "mitm_no_request":
+      return "no request"
+    case "mitm_websocket":
+      return "websocket"
+    default:
+      return cause.replacingOccurrences(of: "_", with: " ")
+    }
+  }
+
+  private static func summaryForReason(
+    _ reasonCode: String,
+    detail: String? = nil,
+    bypassCause: String? = nil
+  ) -> String {
+    let d = detail ?? ""
     let base: String
     switch reasonCode {
     case "decrypted":
@@ -1148,13 +1406,42 @@ final class LocalProxyServer {
     case "no_client_hello":
       base = "No TLS ClientHello observed; connection is captured as a tunnel only."
     case "mitm_bypassed":
-      base = "Host is in MITM bypass list; connection is captured as a tunnel only."
+      if let causeLabel = Self.bypassCauseLabel(bypassCause) {
+        base = "Session bypass (\(causeLabel)); connection is captured as a tunnel only."
+      } else {
+        base = "Host is in MITM bypass list; connection is captured as a tunnel only."
+      }
     case "mitm_fail_open":
       base = "MITM failed; proxy switched to fail-open tunnel mode."
     case "mitm_handshake_failed":
       base = "TLS handshake rejected (client did not trust Lenswire CA, or TLS mismatch). Host bypassed for this VPN session."
+    case "mitm_unsupported":
+      if d.range(of: "guess=http2", options: .caseInsensitive) != nil {
+        base = "HTTP/2 after MITM handshake; connection closed and host bypassed for this VPN session."
+      } else if d.range(of: "guess=non_http", options: .caseInsensitive) != nil {
+        base = "Non-HTTP/binary payload after MITM handshake; connection closed and host bypassed for this VPN session."
+      } else if d.range(of: "guess=http11", options: .caseInsensitive) != nil {
+        base = "Unsupported HTTP method after MITM; connection closed and host bypassed for this VPN session."
+      } else {
+        base = "Unsupported protocol after MITM; connection closed and host bypassed for this VPN session."
+      }
+    case "mitm_no_request":
+      if d.range(of: "cause=timeout", options: .caseInsensitive) != nil {
+        base = "No HTTP request after MITM handshake (read timeout); connection closed and host bypassed for this VPN session."
+      } else if d.range(of: "cause=eof", options: .caseInsensitive) != nil
+        || d.range(of: "guess=empty", options: .caseInsensitive) != nil {
+        base = "No HTTP request after MITM handshake (client closed); connection closed. Host was not added to session bypass."
+      } else {
+        base = "No HTTP request after MITM handshake; connection closed and host bypassed for this VPN session."
+      }
+    case "mitm_websocket":
+      base = "WebSocket upgrade was relayed historically; prefer websocket_relay (frames not inspected)."
+    case "websocket_relay":
+      base = "WebSocket upgrade relayed to upstream; frames are not inspected."
     case "mitm_error":
       base = "MITM proxy error after TLS handshake; connection closed (not fail-open tunnel)."
+    case "alpn_no_http11":
+      base = "ClientHello ALPN has no http/1.1; connection is captured as a tunnel only."
     case "upstream_connect_failed":
       base = "Proxy could not connect to upstream target."
     case "passthrough":
@@ -1188,6 +1475,449 @@ final class LocalProxyServer {
     supportedHTTPMethods.contains(method.uppercased())
   }
 
+  private static func isWebSocketUpgrade(_ headers: [String: String]) -> Bool {
+    guard let upgrade = headers.first(where: { $0.key.lowercased() == "upgrade" })?.value else {
+      return false
+    }
+    return upgrade.range(of: "websocket", options: .caseInsensitive) != nil
+  }
+
+  private static func buildHTTPRequestData(_ parsed: ParsedRequest, requestTarget: String? = nil) -> Data {
+    let target = requestTarget ?? (parsed.pathWithQuery.hasPrefix("/") ? parsed.pathWithQuery : "/\(parsed.pathWithQuery)")
+    var out = Data()
+    out.append(contentsOf: "\(parsed.method) \(target) HTTP/1.1\r\n".utf8)
+    for (key, value) in parsed.headers {
+      out.append(contentsOf: "\(key): \(value)\r\n".utf8)
+    }
+    out.append(contentsOf: "\r\n".utf8)
+    out.append(parsed.body)
+    return out
+  }
+
+  private static func readHTTPHeaderBlock(from bridge: TLSBridge, maxBytes: Int = 65_536) throws -> Data {
+    var out = Data()
+    while out.count < maxBytes {
+      let chunk = try bridge.read(maxLength: 1)
+      if chunk.isEmpty { break }
+      out.append(chunk)
+      if out.count >= 4 {
+        let n = out.count
+        if out[n - 4] == 0x0d && out[n - 3] == 0x0a && out[n - 2] == 0x0d && out[n - 1] == 0x0a {
+          break
+        }
+      }
+    }
+    return out
+  }
+
+  private static func parseHTTPStatus(from headerBlock: Data) -> Int? {
+    guard let text = String(data: headerBlock, encoding: .isoLatin1) else { return nil }
+    let first = text.components(separatedBy: "\r\n").first ?? ""
+    let parts = first.split(separator: " ", omittingEmptySubsequences: true)
+    guard parts.count >= 2 else { return nil }
+    return Int(parts[1])
+  }
+
+  private static func parseResponseHeaders(from headerBlock: Data) -> [String: String] {
+    guard let text = String(data: headerBlock, encoding: .isoLatin1) else { return [:] }
+    let headerText = text.components(separatedBy: "\r\n\r\n").first ?? text
+    var out: [String: String] = [:]
+    for line in headerText.components(separatedBy: "\r\n").dropFirst() {
+      let parts = line.split(separator: ":", maxSplits: 1)
+      guard parts.count == 2 else { continue }
+      out[String(parts[0])] = parts[1].trimmingCharacters(in: .whitespaces)
+    }
+    return out
+  }
+
+  private static func waitReady(_ connection: NWConnection, queue: DispatchQueue, timeoutSeconds: Double = 20) throws {
+    let sem = DispatchSemaphore(value: 0)
+    var failed: Error?
+    connection.stateUpdateHandler = { state in
+      switch state {
+      case .ready:
+        sem.signal()
+      case .failed(let error):
+        failed = error
+        sem.signal()
+      case .cancelled:
+        failed = NSError(domain: "LenswireProxy", code: 12, userInfo: [NSLocalizedDescriptionKey: "Connection cancelled"])
+        sem.signal()
+      default:
+        break
+      }
+    }
+    connection.start(queue: queue)
+    if sem.wait(timeout: .now() + timeoutSeconds) == .timedOut {
+      connection.cancel()
+      throw NSError(domain: "LenswireProxy", code: 13, userInfo: [NSLocalizedDescriptionKey: "Upstream connect timeout"])
+    }
+    if let failed { throw failed }
+  }
+
+  private func relayWebSocketUpgrade(
+    serverTLS: TLSBridge,
+    requestBytes: Data,
+    parsed: ParsedRequest,
+    upstreamHost: String,
+    port: UInt16,
+    useTLS: Bool,
+    id: String,
+    startedAt: Int,
+    connectHost: String,
+    target: String,
+    hostnameSource: String,
+    hostnameConfidence: String,
+    sniHostname: String?,
+    tlsMeta: TlsSni.ClientHelloMeta?,
+    clientHelloBytes: Int,
+    scheme: String,
+    captureMode: String,
+    tlsNegotiatedAlpn: String? = nil
+  ) -> MitmOutcome {
+    do {
+      let endpoint = NWEndpoint.hostPort(host: NWEndpoint.Host(upstreamHost), port: NWEndpoint.Port(rawValue: port)!)
+      let upstreamConn = NWConnection(to: endpoint, using: .tcp)
+      try Self.waitReady(upstreamConn, queue: queue)
+
+      let upstreamTLS: TLSBridge?
+      if useTLS {
+        let bridge = try TLSBridge(
+          connection: upstreamConn,
+          queue: queue,
+          role: .client,
+          identity: nil,
+          peerHostname: upstreamHost
+        )
+        try bridge.handshake()
+        upstreamTLS = bridge
+      } else {
+        upstreamTLS = nil
+      }
+
+      if let upstreamTLS {
+        try upstreamTLS.write(requestBytes)
+      } else {
+        let sem = DispatchSemaphore(value: 0)
+        var sendErr: Error?
+        upstreamConn.send(content: requestBytes, completion: .contentProcessed { error in
+          sendErr = error
+          sem.signal()
+        })
+        _ = sem.wait(timeout: .now() + 20)
+        if let sendErr { throw sendErr }
+      }
+
+      let responseHeaders: Data
+      let responseLeftover: Data
+      if let upstreamTLS {
+        responseHeaders = try Self.readHTTPHeaderBlock(from: upstreamTLS)
+        responseLeftover = Data()
+      } else {
+        let headerRead = try Self.readHTTPHeaderBlockNW(from: upstreamConn, queue: queue)
+        responseHeaders = headerRead.headerBlock
+        responseLeftover = headerRead.leftover
+      }
+
+      var payloadToClient = responseHeaders
+      if !responseLeftover.isEmpty {
+        payloadToClient.append(responseLeftover)
+      }
+      try serverTLS.write(payloadToClient)
+      let status = Self.parseHTTPStatus(from: responseHeaders) ?? 101
+      let resHeaders = Self.parseResponseHeaders(from: responseHeaders)
+      let totalMs = max(1, Int(Date().timeIntervalSince1970 * 1000) - startedAt)
+      let reqCT = parsed.headers.first { $0.key.lowercased() == "content-type" }?.value
+      let reqCE = parsed.headers.first { $0.key.lowercased() == "content-encoding" }?.value
+      LenswireShared.appendCapture([
+        "id": id,
+        "startedAt": startedAt,
+        "method": parsed.method,
+        "scheme": scheme,
+        "host": upstreamHost,
+        "path": parsed.path,
+        "query": parsed.query,
+        "status": status,
+        "requestHeaders": parsed.headers,
+        "responseHeaders": resHeaders,
+        "requestBody": LenswireShared.classifyBody(parsed.body, contentType: reqCT, contentEncoding: reqCE),
+        "responseBody": LenswireShared.classifyBody(Data(), contentType: nil),
+        "timing": Self.timingSample(totalMs: totalMs),
+        "reasonCode": "websocket_relay",
+        "hostnameSource": hostnameSource,
+        "hostnameConfidence": hostnameConfidence,
+        "sniHostname": sniHostname ?? NSNull(),
+        "rawTarget": target,
+        "connectTarget": target,
+        "connectHost": connectHost,
+        "connectPort": Int(port),
+        "effectiveHost": upstreamHost,
+        "captureMode": captureMode,
+        "httpPayloadAvailable": false,
+        "captureSummary": Self.summaryForReason("websocket_relay"),
+        "tlsClientHelloBytes": clientHelloBytes,
+        "tlsRecordVersion": tlsMeta?.recordVersion ?? NSNull(),
+        "tlsClientVersion": tlsMeta?.clientVersion ?? NSNull(),
+        "tlsAlpnProtocols": tlsMeta?.alpnProtocols ?? [],
+        "tlsSniPresent": tlsMeta?.sniPresent ?? (!(sniHostname ?? "").isEmpty),
+        "tlsNegotiatedAlpn": tlsNegotiatedAlpn ?? NSNull(),
+        "upstreamHttpVersion": "HTTP/1.1",
+      ])
+
+      if status != 101 {
+        serverTLS.close()
+        if let upstreamTLS {
+          upstreamTLS.close()
+        } else {
+          upstreamConn.cancel()
+        }
+        return .success
+      }
+
+      let pipeQueue = DispatchQueue(label: "lenswire.ws.pipe.\(id)", attributes: .concurrent)
+      if let upstreamTLS {
+        pipeQueue.async {
+          while true {
+            do {
+              let chunk = try serverTLS.read()
+              try upstreamTLS.write(chunk)
+            } catch {
+              serverTLS.close()
+              upstreamTLS.close()
+              break
+            }
+          }
+        }
+        pipeQueue.async {
+          while true {
+            do {
+              let chunk = try upstreamTLS.read()
+              try serverTLS.write(chunk)
+            } catch {
+              serverTLS.close()
+              upstreamTLS.close()
+              break
+            }
+          }
+        }
+      } else {
+        Self.relayTLSBridge(serverTLS, to: upstreamConn, queue: pipeQueue)
+        Self.relayNW(upstreamConn, to: serverTLS, queue: pipeQueue)
+      }
+      return .success
+    } catch {
+      serverTLS.close()
+      return .hardFailure(
+        detail: String(describing: error),
+        peek: nil,
+        bypassHost: false,
+        reasonCode: "mitm_error"
+      )
+    }
+  }
+
+  private static func relayPlainWebSocketUpgrade(
+    client: NWConnection,
+    requestBytes: Data,
+    parsed: ParsedRequest,
+    upstreamHost: String,
+    port: UInt16,
+    useTLS: Bool,
+    id: String,
+    startedAt: Int,
+    rawTarget: String,
+    scheme: String,
+    onCapture: @escaping ([String: Any]) -> Void
+  ) -> Bool {
+    do {
+      let endpoint = NWEndpoint.hostPort(host: NWEndpoint.Host(upstreamHost), port: NWEndpoint.Port(rawValue: port)!)
+      let queue = DispatchQueue(label: "lenswire.ws.plain.\(id)")
+      let upstreamConn = NWConnection(to: endpoint, using: .tcp)
+      try waitReady(upstreamConn, queue: queue)
+
+      let upstreamTLS: TLSBridge?
+      if useTLS {
+        let bridge = try TLSBridge(
+          connection: upstreamConn,
+          queue: queue,
+          role: .client,
+          identity: nil,
+          peerHostname: upstreamHost
+        )
+        try bridge.handshake()
+        upstreamTLS = bridge
+      } else {
+        upstreamTLS = nil
+      }
+
+      if let upstreamTLS {
+        try upstreamTLS.write(requestBytes)
+      } else {
+        let sem = DispatchSemaphore(value: 0)
+        var sendErr: Error?
+        upstreamConn.send(content: requestBytes, completion: .contentProcessed { error in
+          sendErr = error
+          sem.signal()
+        })
+        _ = sem.wait(timeout: .now() + 20)
+        if let sendErr { throw sendErr }
+      }
+
+      let headerRead: (headerBlock: Data, leftover: Data)
+      if let upstreamTLS {
+        headerRead = (try readHTTPHeaderBlock(from: upstreamTLS), Data())
+      } else {
+        headerRead = try readHTTPHeaderBlockNW(from: upstreamConn, queue: queue)
+      }
+
+      let responseHeaders = headerRead.headerBlock
+      var payloadToClient = responseHeaders
+      if !headerRead.leftover.isEmpty {
+        // Preserve bytes that arrived with upgrade headers (often first WS frame).
+        payloadToClient.append(headerRead.leftover)
+      }
+      let sem = DispatchSemaphore(value: 0)
+      client.send(content: payloadToClient, completion: .contentProcessed { _ in sem.signal() })
+      _ = sem.wait(timeout: .now() + 20)
+
+      let status = parseHTTPStatus(from: responseHeaders) ?? 101
+      let resHeaders = parseResponseHeaders(from: responseHeaders)
+      let totalMs = max(1, Int(Date().timeIntervalSince1970 * 1000) - startedAt)
+      let reqCT = parsed.headers.first { $0.key.lowercased() == "content-type" }?.value
+      let reqCE = parsed.headers.first { $0.key.lowercased() == "content-encoding" }?.value
+      onCapture([
+        "id": id,
+        "startedAt": startedAt,
+        "method": parsed.method,
+        "path": parsed.path,
+        "query": parsed.query,
+        "status": status,
+        "requestHeaders": parsed.headers,
+        "responseHeaders": resHeaders,
+        "requestBody": LenswireShared.classifyBody(parsed.body, contentType: reqCT, contentEncoding: reqCE),
+        "responseBody": LenswireShared.classifyBody(Data(), contentType: nil),
+        "timing": emptyTiming(totalMs: totalMs),
+        "reasonCode": "websocket_relay",
+        "hostnameSource": "host_header",
+        "hostnameConfidence": "high",
+        "sniHostname": NSNull(),
+        "rawTarget": rawTarget,
+        "connectTarget": NSNull(),
+        "connectHost": NSNull(),
+        "connectPort": NSNull(),
+        "effectiveHost": upstreamHost,
+        "captureMode": "http",
+        "httpPayloadAvailable": false,
+        "captureSummary": summaryForReason("websocket_relay"),
+        "tlsClientHelloBytes": NSNull(),
+        "tlsRecordVersion": NSNull(),
+        "tlsClientVersion": NSNull(),
+        "tlsAlpnProtocols": [],
+        "tlsSniPresent": NSNull(),
+      ])
+
+      if status != 101 {
+        client.cancel()
+        if let upstreamTLS {
+          upstreamTLS.close()
+        } else {
+          upstreamConn.cancel()
+        }
+        return false
+      }
+
+      if let upstreamTLS {
+        // Bridge client NW <-> upstream TLSBridge via temp relays is complex; use cancel for rare https-in-plain-proxy.
+        // Plain HTTP WS is typically non-TLS.
+        relayNW(client, to: upstreamTLS, queue: queue)
+        relayTLSBridge(upstreamTLS, to: client, queue: queue)
+      } else {
+        relay(from: client, to: upstreamConn, queue: queue)
+        relay(from: upstreamConn, to: client, queue: queue)
+      }
+      return true
+    } catch {
+      client.cancel()
+      return false
+    }
+  }
+
+  private static func readHTTPHeaderBlockNW(
+    from connection: NWConnection,
+    queue: DispatchQueue,
+    maxBytes: Int = 65_536
+  ) throws -> (headerBlock: Data, leftover: Data) {
+    var out = Data()
+    while out.count < maxBytes {
+      let sem = DispatchSemaphore(value: 0)
+      var chunk: Data?
+      var failed: Error?
+      connection.receive(minimumIncompleteLength: 1, maximumLength: 4096) { data, _, _, error in
+        chunk = data
+        failed = error
+        sem.signal()
+      }
+      _ = sem.wait(timeout: .now() + 25)
+      if let failed { throw failed }
+      guard let data = chunk, !data.isEmpty else { break }
+      out.append(data)
+      if let range = out.range(of: Data("\r\n\r\n".utf8)) {
+        let headerEnd = range.upperBound
+        let headerBlock = Data(out[..<headerEnd])
+        let leftover = headerEnd < out.count ? Data(out[headerEnd...]) : Data()
+        return (headerBlock: headerBlock, leftover: leftover)
+      }
+    }
+    return (headerBlock: out, leftover: Data())
+  }
+
+  private static func relayTLSBridge(_ source: TLSBridge, to dest: NWConnection, queue: DispatchQueue) {
+    queue.async {
+      while true {
+        do {
+          let chunk = try source.read()
+          let sem = DispatchSemaphore(value: 0)
+          var failed = false
+          dest.send(content: chunk, completion: .contentProcessed { error in
+            failed = error != nil
+            sem.signal()
+          })
+          _ = sem.wait(timeout: .now() + 30)
+          if failed { break }
+        } catch {
+          break
+        }
+      }
+      source.close()
+      dest.cancel()
+    }
+  }
+
+  private static func relayNW(_ source: NWConnection, to dest: TLSBridge, queue: DispatchQueue) {
+    func loop() {
+      source.receive(minimumIncompleteLength: 1, maximumLength: 65536) { data, _, isComplete, error in
+        if let data, !data.isEmpty {
+          do {
+            try dest.write(data)
+            if isComplete || error != nil {
+              source.cancel()
+              dest.close()
+            } else {
+              loop()
+            }
+          } catch {
+            source.cancel()
+            dest.close()
+          }
+        } else {
+          source.cancel()
+          dest.close()
+        }
+      }
+    }
+    queue.async { loop() }
+  }
+
   private static let http2Preface = Data("PRI * HTTP/2.0".utf8)
   private static let printableRatioThreshold = 0.85
 
@@ -1212,11 +1942,23 @@ final class LocalProxyServer {
     return PayloadSniff(guess: .nonHttp, method: method, firstLine: line, looksLikeHttp11: false)
   }
 
-  /// Abort on EOF, HTTP/2, clear binary, or unsupported HTTP/1.1 method.
+  /// Empty / missing ALPN → allow MITM. Non-empty without http/1.0|1.1 → skip MITM.
+  private static func alpnAllowsHttp11Mitm(_ protocols: [String]?) -> Bool {
+    guard let protocols, !protocols.isEmpty else { return true }
+    return protocols.contains { name in
+      name.compare("http/1.1", options: .caseInsensitive) == .orderedSame ||
+        name.compare("http/1.0", options: .caseInsensitive) == .orderedSame
+    }
+  }
+
+  /// Abort on HTTP/2, clear binary, or unsupported HTTP/1.1 method.
+  /// Do not abort on empty peek — continue into completeHTTPMessage so a late GET can arrive.
   /// Do not abort on ambiguous printable fragments (e.g. `"GET"` without a path).
   private static func shouldAbortMitm(_ sniff: PayloadSniff, bytes: Data) -> Bool {
     switch sniff.guess {
-    case .empty, .http2:
+    case .empty:
+      return false
+    case .http2:
       return true
     case .http11:
       if let method = sniff.method { return !isSupportedHTTPMethod(method) }

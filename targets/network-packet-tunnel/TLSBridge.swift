@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import Network
 import Security
@@ -38,6 +39,12 @@ private func ST_SSLSetALPNProtocols(
   _ protocols: CFArray
 ) -> OSStatus
 
+@_silgen_name("SSLCopyALPNProtocols")
+private func ST_SSLCopyALPNProtocols(
+  _ context: SSLContext,
+  _ protocols: UnsafeMutablePointer<CFArray?>
+) -> OSStatus
+
 @_silgen_name("SSLHandshake")
 private func ST_SSLHandshake(_ context: SSLContext) -> OSStatus
 
@@ -57,6 +64,13 @@ private func ST_SSLWrite(
   _ processed: UnsafeMutablePointer<Int>
 ) -> OSStatus
 
+@_silgen_name("SSLSetPeerDomainName")
+private func ST_SSLSetPeerDomainName(
+  _ context: SSLContext,
+  _ peerName: UnsafePointer<CChar>?,
+  _ peerNameLen: Int
+) -> OSStatus
+
 @_silgen_name("SSLClose")
 private func ST_SSLClose(_ context: SSLContext) -> OSStatus
 
@@ -74,6 +88,8 @@ final class TLSBridge {
     case readFailed(OSStatus)
     case writeFailed(OSStatus)
     case closed
+    /// No application data within the idle wait window (used after MITM handshake).
+    case timedOut
   }
 
   private let connection: NWConnection
@@ -83,13 +99,17 @@ final class TLSBridge {
   private var inbox = Data()
   private var closed = false
   private var receiveInFlight = false
+  /// When true, `pumpReceive(wait:)` throws `timedOut` if the wait expires with an empty inbox.
+  /// Enable for post-handshake MITM request reads; leave false for WebSocket relay (idle is normal).
+  var throwOnIdleTimeout = false
 
   init(
     connection: NWConnection,
     queue: DispatchQueue,
     role: Role,
     identity: SecIdentity?,
-    preloadedData: Data = Data()
+    preloadedData: Data = Data(),
+    peerHostname: String? = nil
   ) throws {
     self.connection = connection
     self.queue = queue
@@ -119,6 +139,15 @@ final class TLSBridge {
       )
     }
 
+    if role == .client, let peerHostname, !peerHostname.isEmpty {
+      try peerHostname.withCString { cstr in
+        try checkStatus(
+          ST_SSLSetPeerDomainName(ctx, cstr, strlen(cstr)),
+          operation: "SSLSetPeerDomainName"
+        )
+      }
+    }
+
     // Prefer HTTP/1.1 so we can parse requests without HTTP/2 framing.
     if #available(iOS 11.0, *) {
       let protocols = ["http/1.1"] as CFArray
@@ -143,6 +172,21 @@ final class TLSBridge {
     }
   }
 
+  /// Negotiated ALPN after handshake (MITM server forces http/1.1).
+  func negotiatedAlpn() -> String {
+    if #available(iOS 11.0, *) {
+      var protocols: CFArray?
+      let status = ST_SSLCopyALPNProtocols(context, &protocols)
+      if status == errSecSuccess, let protocols {
+        let names = protocols as? [String] ?? []
+        if let first = names.first, !first.isEmpty {
+          return first
+        }
+      }
+    }
+    return "http/1.1"
+  }
+
   func read(maxLength: Int = 65536) throws -> Data {
     var buffer = [UInt8](repeating: 0, count: maxLength)
     while true {
@@ -151,10 +195,9 @@ final class TLSBridge {
       if processed > 0 {
         return Data(buffer.prefix(processed))
       }
-      if status == errSecSuccess {
-        return Data()
-      }
-      if status == errSSLWouldBlock {
+      // errSecSuccess + 0 bytes is not EOF — treat as would-block and wait for data.
+      // Only errSSLClosed* / TLSError.closed surface a closed peer.
+      if status == errSecSuccess || status == errSSLWouldBlock {
         try pumpReceive(wait: true)
         continue
       }
@@ -248,12 +291,17 @@ final class TLSBridge {
     }
 
     if let semaphore {
-      _ = semaphore.wait(timeout: .now() + 30)
+      let waitResult = semaphore.wait(timeout: .now() + 30)
       lock.lock()
       let isClosed = closed && inbox.isEmpty
+      let idleEmpty = inbox.isEmpty && !closed
+      let shouldThrowTimeout = throwOnIdleTimeout
       lock.unlock()
       if let receiveError { throw receiveError }
       if isClosed { throw TLSError.closed }
+      if waitResult == .timedOut && shouldThrowTimeout && idleEmpty {
+        throw TLSError.timedOut
+      }
     }
   }
 

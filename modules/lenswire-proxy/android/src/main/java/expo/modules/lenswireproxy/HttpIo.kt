@@ -18,6 +18,7 @@ internal object HttpIo {
     headers: Map<String, String>,
     body: ByteArray,
     statusMessage: String? = null,
+    connectionClose: Boolean = true,
   ) {
     val headerBuf = StringBuilder()
     headerBuf.append("HTTP/1.1 ").append(status).append(' ')
@@ -26,13 +27,27 @@ internal object HttpIo {
     headers.forEach { (key, value) ->
       if (key.equals("Transfer-Encoding", true)) return@forEach
       if (key.equals("Content-Length", true)) return@forEach
+      if (key.equals("Connection", true)) return@forEach
       headerBuf.append(key).append(": ").append(value).append("\r\n")
     }
     headerBuf.append("Content-Length: ").append(body.size).append("\r\n")
-    headerBuf.append("Connection: close\r\n\r\n")
+    headerBuf.append("Connection: ")
+      .append(if (connectionClose) "close" else "keep-alive")
+      .append("\r\n\r\n")
     out.write(headerBuf.toString().toByteArray(Charsets.ISO_8859_1))
     out.write(body)
     out.flush()
+  }
+
+  /** HTTP/1.1 default keep-alive unless client sent Connection: close. */
+  fun clientWantsKeepAlive(headers: Map<String, String>): Boolean {
+    val connection = headers.entries
+      .firstOrNull { it.key.equals("Connection", ignoreCase = true) }
+      ?.value
+      ?.lowercase()
+      .orEmpty()
+    if (connection.contains("close")) return false
+    return true
   }
 
   fun readHttpMessage(socket: SSLSocket): ByteArray = readHttpMessage(socket.inputStream)
@@ -68,11 +83,21 @@ internal object HttpIo {
     return out.toByteArray()
   }
 
-  /** First application-data chunk after TLS handshake (bounded; does not wait for HTTP headers). */
+  /**
+   * First application-data chunk after TLS handshake (bounded; does not wait for HTTP headers).
+   * Only `read < 0` is EOF. Some SSL streams return `0` contrary to InputStream contract —
+   * treat that as would-block and retry until data, EOF, or the socket's read timeout.
+   */
   fun readFirstChunk(input: InputStream, maxBytes: Int = 4096): ByteArray {
     val buffer = ByteArray(maxBytes)
-    val read = input.read(buffer)
-    return if (read <= 0) ByteArray(0) else buffer.copyOf(read)
+    while (true) {
+      val read = input.read(buffer)
+      when {
+        read < 0 -> return ByteArray(0)
+        read > 0 -> return buffer.copyOf(read)
+        // read == 0: retry (would-block / no bytes yet)
+      }
+    }
   }
 
   private fun messageComplete(bytes: ByteArray, headerEnd: Int, contentLength: Int): Boolean {

@@ -46,13 +46,15 @@ internal object MitmPayloadSniff {
 
   /**
    * Whether MITM should stop immediately after the first peek.
-   * Abort on EOF, HTTP/2, clear binary, or unsupported HTTP/1.1 method.
-   * Do **not** abort on ambiguous printable fragments (e.g. `"GET"` without a path) —
-   * those continue into [HttpIo.readHttpMessage] with the peek as prefix.
+   * Abort on HTTP/2, clear binary, or unsupported HTTP/1.1 method.
+   * Do **not** abort on empty peek — continue into [HttpIo.readHttpMessage] so a late
+   * GET (e.g. images) can still arrive; genuine EOF/timeout is handled by the blocking read.
+   * Do **not** abort on ambiguous printable fragments (e.g. `"GET"` without a path).
    */
   fun shouldAbortMitm(result: Result, bytes: ByteArray): Boolean {
     return when (result.guess) {
-      Guess.EMPTY, Guess.HTTP2 -> true
+      Guess.EMPTY -> false
+      Guess.HTTP2 -> true
       Guess.HTTP11 -> result.method != null && !isSupportedMethod(result.method)
       Guess.NON_HTTP -> isClearlyNonHttp(bytes)
     }

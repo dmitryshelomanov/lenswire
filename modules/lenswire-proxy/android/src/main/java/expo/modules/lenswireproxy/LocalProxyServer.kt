@@ -7,6 +7,7 @@ import java.net.InetSocketAddress
 import java.net.Proxy
 import java.net.ServerSocket
 import java.net.Socket
+import java.net.SocketTimeoutException
 import java.net.URI
 import java.net.URL
 import java.io.ByteArrayOutputStream
@@ -30,8 +31,17 @@ class LocalProxyServer(
   private var acceptPool: ExecutorService? = null
   private val relayPool: ExecutorService = Executors.newCachedThreadPool()
   private val mitmContexts = ConcurrentHashMap<String, SSLContext>()
-  /** Hosts that rejected MITM (pinning / trust). Subsequent flows fail-open to passthrough. */
-  private val mitmBypassHosts = ConcurrentHashMap.newKeySet<String>()
+  /**
+   * Session MITM bypass: host → cause reasonCode that first triggered bypass
+   * (e.g. mitm_handshake_failed, mitm_unsupported, mitm_no_request).
+   */
+  private val mitmBypassHosts = ConcurrentHashMap<String, String>()
+
+  private fun addMitmBypass(host: String, cause: String) {
+    mitmBypassHosts.putIfAbsent(host.lowercase(), cause)
+  }
+
+  private fun mitmBypassCause(host: String): String? = mitmBypassHosts[host.lowercase()]
 
   private fun protectIfNeeded(socket: Socket) {
     runCatching { protectSocket?.invoke(socket) }
@@ -222,7 +232,8 @@ class LocalProxyServer(
 
     val decryptEnabled = httpsDecryptEnabled()
     val caReady = CertificateManager.loadCa(context) != null
-    val bypassed = mitmBypassHosts.contains(effectiveHost.lowercase())
+    val bypassCause = mitmBypassCause(effectiveHost)
+    val bypassed = bypassCause != null
     val clientHelloExpected = prefix.isNotEmpty() || headerSni != null
     val alpnOk = MitmAlpn.allowsHttp11Mitm(tlsMeta?.alpnProtocols)
     val canMitm = decryptEnabled &&
@@ -258,6 +269,7 @@ class LocalProxyServer(
         sniHostname = sniHostname,
         tlsMeta = tlsMeta,
         clientHelloBytes = prefix.size,
+        bypassCause = if (bypassed) bypassCause else null,
       )
       return
     }
@@ -302,7 +314,7 @@ class LocalProxyServer(
       }
       is MitmOutcome.HandshakeRejected -> {
         // Client already saw (or rejected) our MITM cert — ClientHello replay is impossible.
-        mitmBypassHosts.add(effectiveHost.lowercase())
+        addMitmBypass(effectiveHost, "mitm_handshake_failed")
         appendTunnelCapture(
           id = id,
           startedAt = startedAt,
@@ -318,14 +330,17 @@ class LocalProxyServer(
           tlsMeta = tlsMeta,
           clientHelloBytes = prefix.size,
           note = mitmResult.detail,
+          bypassCause = "mitm_handshake_failed",
         )
         runCatching { client.close() }
       }
       is MitmOutcome.HardFailure -> {
         // Do not passthrough this socket: TLS already started; ClientHello replay would desync.
-        // Unsupported protocol / WebSocket → bypass host so retries go tunnel-only.
+        // Unsupported protocol / post-handshake silence → bypass host so retries go tunnel-only.
+        // Keep reasonCode as-is (do not remap bypassHost=false to mitm_error).
+        val failReason = mitmResult.reasonCode
         if (mitmResult.bypassHost) {
-          mitmBypassHosts.add(effectiveHost.lowercase())
+          addMitmBypass(effectiveHost, failReason)
         }
         appendTunnelCapture(
           id = id,
@@ -334,10 +349,7 @@ class LocalProxyServer(
           connectHost = connectHost,
           connectPort = port,
           status = 502,
-          reasonCode = when {
-            !mitmResult.bypassHost -> "mitm_error"
-            else -> mitmResult.reasonCode
-          },
+          reasonCode = failReason,
           clientAttribution = clientAttribution,
           hostnameSource = hostnameSource,
           hostnameConfidence = hostnameConfidence,
@@ -346,6 +358,7 @@ class LocalProxyServer(
           clientHelloBytes = prefix.size,
           note = mitmResult.detail,
           peekBytes = mitmResult.peekBytes,
+          bypassCause = if (mitmResult.bypassHost) failReason else null,
         )
         runCatching { client.close() }
       }
@@ -359,7 +372,8 @@ class LocalProxyServer(
     class HardFailure(
       val detail: String? = null,
       val peekBytes: ByteArray? = null,
-      /** True for sniff/unsupported-method/WebSocket; host joins session bypass list. */
+      /** True for sniff/unsupported-method/post-handshake timeout; host joins session bypass list.
+       * Empty EOF after handshake does not bypass (CDN speculative connects). */
       val bypassHost: Boolean = false,
       val reasonCode: String = "mitm_unsupported",
     ) : MitmOutcome()
@@ -384,6 +398,7 @@ class LocalProxyServer(
     var handshakeStarted = false
     var socket: SSLSocket? = null
     var capturedPeek: ByteArray? = null
+    var sawHttpRequest = false
     return try {
       val handshakeStartMs = System.currentTimeMillis()
       val sslContext = getOrCreateMitmContext(mitmHost)
@@ -407,9 +422,13 @@ class LocalProxyServer(
       handshakeStarted = true
       tlsSocket.startHandshake()
       val handshakeDoneMs = System.currentTimeMillis()
+      val negotiatedAlpn = tlsSocket.applicationProtocol
+        ?.takeIf { it.isNotBlank() }
+        ?: "http/1.1"
 
-      // Early sniff: abort only on clear non-HTTP/1.1 (h2, binary, EOF, unsupported method).
-      // Ambiguous printable fragments (e.g. partial "GET") continue into readHttpMessage.
+      // Early sniff: abort only on clear non-HTTP/1.1 (h2, binary, unsupported method).
+      // Empty peek continues into readHttpMessage (wait for late GET). Ambiguous printable
+      // fragments (e.g. partial "GET") also continue with the peek as prefix.
       val peekBytes = HttpIo.readFirstChunk(tlsSocket.inputStream)
       capturedPeek = peekBytes
       val sniff = MitmPayloadSniff.analyze(peekBytes)
@@ -419,95 +438,212 @@ class LocalProxyServer(
           detail = MitmPayloadSniff.formatDetail(sniff, peekBytes),
           peekBytes = peekBytes,
           bypassHost = true,
+          reasonCode = "mitm_unsupported",
         )
       }
 
-      val requestData = HttpIo.readHttpMessage(tlsSocket.inputStream, peekBytes)
-      var parsed = parseHttpRequest(requestData)
-      val stripped = ClientAttributionHeaders.stripAndExtract(parsed.headers)
-      parsed = parsed.copy(headers = stripped.first)
-      val effectiveClientAttribution = stripped.second ?: clientAttribution
-      if (!MitmPayloadSniff.isSupportedMethod(parsed.method)) {
-        runCatching { tlsSocket.close() }
-        return MitmOutcome.HardFailure(
-          detail = MitmPayloadSniff.formatDetail(
-            MitmPayloadSniff.Result(
-              guess = MitmPayloadSniff.Guess.HTTP11,
-              method = parsed.method,
-              firstLine = sniff.firstLine,
+      var readPrefix = peekBytes
+      var handledAny = false
+      for (reqIndex in 0 until MITM_MAX_KEEPALIVE_REQUESTS) {
+        val requestStartedAt = if (reqIndex == 0) startedAt else System.currentTimeMillis()
+        val requestId = if (reqIndex == 0) id else UUID.randomUUID().toString()
+        val requestData = HttpIo.readHttpMessage(tlsSocket.inputStream, readPrefix)
+        readPrefix = ByteArray(0)
+        if (requestData.isEmpty() || requestData.all { it == ' '.code.toByte() || it == '\t'.code.toByte() ||
+            it == '\r'.code.toByte() || it == '\n'.code.toByte() }
+        ) {
+          if (!handledAny) {
+            runCatching { tlsSocket.close() }
+            return MitmOutcome.HardFailure(
+              detail = "guess=empty; bytes=0; cause=eof",
+              peekBytes = peekBytes,
+              bypassHost = false,
+              reasonCode = "mitm_no_request",
+            )
+          }
+          break
+        }
+
+        var parsed = parseHttpRequest(requestData)
+        sawHttpRequest = true
+        handledAny = true
+        val stripped = ClientAttributionHeaders.stripAndExtract(parsed.headers)
+        parsed = parsed.copy(headers = stripped.first)
+        val effectiveClientAttribution = stripped.second ?: clientAttribution
+        if (!MitmPayloadSniff.isSupportedMethod(parsed.method)) {
+          runCatching { tlsSocket.close() }
+          return MitmOutcome.HardFailure(
+            detail = MitmPayloadSniff.formatDetail(
+              MitmPayloadSniff.Result(
+                guess = MitmPayloadSniff.Guess.HTTP11,
+                method = parsed.method,
+                firstLine = sniff.firstLine,
+              ),
+              peekBytes,
             ),
-            peekBytes,
-          ),
-          peekBytes = peekBytes,
-          bypassHost = true,
-        )
-      }
-      if (HttpUpgrade.isWebSocketUpgrade(parsed.headers)) {
-        val upstreamHost = hostFromHeaders(parsed.headers) ?: mitmHost
-        return relayWebSocketUpgrade(
-          clientTls = tlsSocket,
-          requestBytes = buildHttpRequestBytes(parsed),
-          parsed = parsed,
-          upstreamHost = upstreamHost,
-          port = port,
-          useTls = true,
-          id = id,
-          startedAt = startedAt,
-          connectHost = connectHost,
-          clientAttribution = effectiveClientAttribution,
-          hostnameSource = if (hostFromHeaders(parsed.headers) != null) "host_header" else hostnameSource,
-          hostnameConfidence = if (hostFromHeaders(parsed.headers) != null) "high" else hostnameConfidence,
-          sniHostname = sniHostname,
-          tlsMeta = tlsMeta,
-          clientHelloBytes = clientHelloBytes,
-          handshakeStartMs = handshakeStartMs,
-          handshakeDoneMs = handshakeDoneMs,
-          mitmStartMs = mitmStartMs,
-          scheme = "https",
-          captureMode = "mitm",
-        )
-      }
-      val upstreamHost = hostFromHeaders(parsed.headers) ?: mitmHost
-      var overrideApplied: String? = null
+            peekBytes = peekBytes,
+            bypassHost = true,
+            reasonCode = "mitm_unsupported",
+          )
+        }
+        if (HttpUpgrade.isWebSocketUpgrade(parsed.headers)) {
+          val upstreamHost = hostFromHeaders(parsed.headers) ?: mitmHost
+          return relayWebSocketUpgrade(
+            clientTls = tlsSocket,
+            requestBytes = buildHttpRequestBytes(parsed),
+            parsed = parsed,
+            upstreamHost = upstreamHost,
+            port = port,
+            useTls = true,
+            id = requestId,
+            startedAt = requestStartedAt,
+            connectHost = connectHost,
+            clientAttribution = effectiveClientAttribution,
+            hostnameSource = if (hostFromHeaders(parsed.headers) != null) "host_header" else hostnameSource,
+            hostnameConfidence = if (hostFromHeaders(parsed.headers) != null) "high" else hostnameConfidence,
+            sniHostname = sniHostname,
+            tlsMeta = tlsMeta,
+            clientHelloBytes = clientHelloBytes,
+            handshakeStartMs = handshakeStartMs,
+            handshakeDoneMs = handshakeDoneMs,
+            mitmStartMs = mitmStartMs,
+            scheme = "https",
+            captureMode = "mitm",
+            tlsNegotiatedAlpn = negotiatedAlpn,
+          )
+        }
 
-      val responseRule = OverrideRules.find(
-        context,
-        kind = "response",
-        method = parsed.method,
-        scheme = "https",
-        host = upstreamHost,
-        path = parsed.path,
-        query = parsed.query,
-      )
-      if (responseRule != null) {
-        val mockBody = responseRule.bodyBytes()
-        val mockHeaders = responseRule.responseHeaders()
-        HttpIo.writeHttpResponse(tlsSocket.outputStream, responseRule.status, mockHeaders, mockBody)
-        tlsSocket.close()
+        val keepAlive = HttpIo.clientWantsKeepAlive(parsed.headers) &&
+          reqIndex < MITM_MAX_KEEPALIVE_REQUESTS - 1
+        val upstreamHost = hostFromHeaders(parsed.headers) ?: mitmHost
+        var overrideApplied: String? = null
+        val hostHdr = hostFromHeaders(parsed.headers) != null
+        val hs = if (hostHdr) "host_header" else hostnameSource
+        val hc = if (hostHdr) "high" else hostnameConfidence
+        val alpnList =
+          if (tlsMeta?.alpnProtocols?.isNotEmpty() == true) tlsMeta.alpnProtocols else null
+        val sniPresent = tlsMeta?.sniPresent ?: !sniHostname.isNullOrBlank()
+
+        val responseRule = OverrideRules.find(
+          context,
+          kind = "response",
+          method = parsed.method,
+          scheme = "https",
+          host = upstreamHost,
+          path = parsed.path,
+          query = parsed.query,
+        )
+        if (responseRule != null) {
+          val mockBody = responseRule.bodyBytes()
+          val mockHeaders = responseRule.responseHeaders()
+          HttpIo.writeHttpResponse(
+            tlsSocket.outputStream,
+            responseRule.status,
+            mockHeaders,
+            mockBody,
+            connectionClose = !keepAlive,
+          )
+          val doneMs = System.currentTimeMillis()
+          CaptureStore.append(
+            context,
+            mapOf(
+              "id" to requestId,
+              "startedAt" to requestStartedAt,
+              "method" to parsed.method,
+              "scheme" to "https",
+              "host" to upstreamHost,
+              "path" to parsed.path,
+              "query" to parsed.query,
+              "status" to responseRule.status,
+              "requestHeaders" to parsed.headers,
+              "responseHeaders" to mockHeaders,
+              "requestBody" to classifyBodyWithHeaders(parsed.body, parsed.headers),
+              "responseBody" to classifyBody(mockBody, responseRule.contentType.ifBlank { null }),
+              "timing" to timing(
+                tlsMs = maxOf(0L, handshakeDoneMs - handshakeStartMs).toInt(),
+                totalMs = maxOf(1L, doneMs - requestStartedAt),
+              ),
+              "overrideApplied" to "response",
+              "reasonCode" to "decrypted",
+              "hostnameSource" to hs,
+              "hostnameConfidence" to hc,
+              "sniHostname" to sniHostname,
+              "rawTarget" to "$connectHost:$port",
+              "connectTarget" to "$connectHost:$port",
+              "connectHost" to connectHost,
+              "connectPort" to port,
+              "effectiveHost" to upstreamHost,
+              "captureMode" to "mitm",
+              "httpPayloadAvailable" to true,
+              "captureSummary" to "Response overridden (full mock); upstream not contacted.",
+              "tlsClientHelloBytes" to clientHelloBytes,
+              "tlsRecordVersion" to tlsMeta?.recordVersion,
+              "tlsClientVersion" to tlsMeta?.clientVersion,
+              "tlsAlpnProtocols" to alpnList,
+              "tlsSniPresent" to sniPresent,
+              "tlsNegotiatedAlpn" to negotiatedAlpn,
+              "upstreamHttpVersion" to null,
+            ) + ClientAttributionHeaders.asCaptureFields(effectiveClientAttribution),
+          )
+          if (!keepAlive) {
+            runCatching { tlsSocket.close() }
+            return MitmOutcome.Success
+          }
+          tlsSocket.soTimeout = MITM_KEEPALIVE_IDLE_MS
+          continue
+        }
+
+        val requestRule = OverrideRules.find(
+          context,
+          kind = "request",
+          method = parsed.method,
+          scheme = "https",
+          host = upstreamHost,
+          path = parsed.path,
+          query = parsed.query,
+        )
+        if (requestRule != null) {
+          val rewritten = OverrideRules.rewriteRequest(parsed.headers, requestRule)
+          parsed = parsed.copy(headers = rewritten.first, body = rewritten.second)
+          overrideApplied = "request"
+        }
+
+        val upstream = fetchHttps(upstreamHost, port, parsed)
+        HttpIo.writeHttpResponse(
+          tlsSocket.outputStream,
+          upstream.status,
+          upstream.headers,
+          upstream.body,
+          connectionClose = !keepAlive,
+        )
         val doneMs = System.currentTimeMillis()
+
         CaptureStore.append(
           context,
           mapOf(
-            "id" to id,
-            "startedAt" to startedAt,
+            "id" to requestId,
+            "startedAt" to requestStartedAt,
             "method" to parsed.method,
             "scheme" to "https",
             "host" to upstreamHost,
             "path" to parsed.path,
             "query" to parsed.query,
-            "status" to responseRule.status,
+            "status" to upstream.status,
             "requestHeaders" to parsed.headers,
-            "responseHeaders" to mockHeaders,
+            "responseHeaders" to upstream.headers,
             "requestBody" to classifyBodyWithHeaders(parsed.body, parsed.headers),
-            "responseBody" to classifyBody(mockBody, responseRule.contentType.ifBlank { null }),
+            "responseBody" to classifyBodyWithHeaders(upstream.body, upstream.headers),
             "timing" to timing(
+              connectMs = maxOf(0, upstream.totalMs - upstream.ttfbMs - upstream.downloadMs),
               tlsMs = maxOf(0L, handshakeDoneMs - handshakeStartMs).toInt(),
-              totalMs = maxOf(1L, doneMs - mitmStartMs),
+              ttfbMs = upstream.ttfbMs,
+              downloadMs = upstream.downloadMs,
+              totalMs = maxOf(1L, doneMs - requestStartedAt),
             ),
-            "overrideApplied" to "response",
+            "overrideApplied" to overrideApplied,
             "reasonCode" to "decrypted",
-            "hostnameSource" to if (hostFromHeaders(parsed.headers) != null) "host_header" else hostnameSource,
-            "hostnameConfidence" to if (hostFromHeaders(parsed.headers) != null) "high" else hostnameConfidence,
+            "hostnameSource" to hs,
+            "hostnameConfidence" to hc,
             "sniHostname" to sniHostname,
             "rawTarget" to "$connectHost:$port",
             "connectTarget" to "$connectHost:$port",
@@ -516,83 +652,27 @@ class LocalProxyServer(
             "effectiveHost" to upstreamHost,
             "captureMode" to "mitm",
             "httpPayloadAvailable" to true,
-            "captureSummary" to "Response overridden (full mock); upstream not contacted.",
+            "captureSummary" to if (overrideApplied == "request") {
+              "Request body overridden before upstream; TLS decrypted via MITM."
+            } else {
+              "TLS decrypted via MITM; full HTTP payload available."
+            },
             "tlsClientHelloBytes" to clientHelloBytes,
             "tlsRecordVersion" to tlsMeta?.recordVersion,
             "tlsClientVersion" to tlsMeta?.clientVersion,
-            "tlsAlpnProtocols" to if (tlsMeta?.alpnProtocols?.isNotEmpty() == true) tlsMeta.alpnProtocols else null,
-            "tlsSniPresent" to (tlsMeta?.sniPresent ?: !sniHostname.isNullOrBlank()),
+            "tlsAlpnProtocols" to alpnList,
+            "tlsSniPresent" to sniPresent,
+            "tlsNegotiatedAlpn" to negotiatedAlpn,
+            "upstreamHttpVersion" to "HTTP/1.1",
           ) + ClientAttributionHeaders.asCaptureFields(effectiveClientAttribution),
         )
-        return MitmOutcome.Success
+        if (!keepAlive) {
+          runCatching { tlsSocket.close() }
+          return MitmOutcome.Success
+        }
+        tlsSocket.soTimeout = MITM_KEEPALIVE_IDLE_MS
       }
-
-      val requestRule = OverrideRules.find(
-        context,
-        kind = "request",
-        method = parsed.method,
-        scheme = "https",
-        host = upstreamHost,
-        path = parsed.path,
-        query = parsed.query,
-      )
-      if (requestRule != null) {
-        val rewritten = OverrideRules.rewriteRequest(parsed.headers, requestRule)
-        parsed = parsed.copy(headers = rewritten.first, body = rewritten.second)
-        overrideApplied = "request"
-      }
-
-      val upstream = fetchHttps(upstreamHost, port, parsed)
-      HttpIo.writeHttpResponse(tlsSocket.outputStream, upstream.status, upstream.headers, upstream.body)
-      tlsSocket.close()
-      val doneMs = System.currentTimeMillis()
-
-      CaptureStore.append(
-        context,
-        mapOf(
-          "id" to id,
-          "startedAt" to startedAt,
-          "method" to parsed.method,
-          "scheme" to "https",
-          "host" to upstreamHost,
-          "path" to parsed.path,
-          "query" to parsed.query,
-          "status" to upstream.status,
-          "requestHeaders" to parsed.headers,
-          "responseHeaders" to upstream.headers,
-          "requestBody" to classifyBodyWithHeaders(parsed.body, parsed.headers),
-          "responseBody" to classifyBodyWithHeaders(upstream.body, upstream.headers),
-          "timing" to timing(
-            connectMs = maxOf(0, upstream.totalMs - upstream.ttfbMs - upstream.downloadMs),
-            tlsMs = maxOf(0L, handshakeDoneMs - handshakeStartMs).toInt(),
-            ttfbMs = upstream.ttfbMs,
-            downloadMs = upstream.downloadMs,
-            totalMs = maxOf(1L, doneMs - mitmStartMs),
-          ),
-          "overrideApplied" to overrideApplied,
-          "reasonCode" to "decrypted",
-          "hostnameSource" to if (hostFromHeaders(parsed.headers) != null) "host_header" else hostnameSource,
-          "hostnameConfidence" to if (hostFromHeaders(parsed.headers) != null) "high" else hostnameConfidence,
-          "sniHostname" to sniHostname,
-          "rawTarget" to "$connectHost:$port",
-          "connectTarget" to "$connectHost:$port",
-          "connectHost" to connectHost,
-          "connectPort" to port,
-          "effectiveHost" to upstreamHost,
-          "captureMode" to "mitm",
-          "httpPayloadAvailable" to true,
-          "captureSummary" to if (overrideApplied == "request") {
-            "Request body overridden before upstream; TLS decrypted via MITM."
-          } else {
-            "TLS decrypted via MITM; full HTTP payload available."
-          },
-          "tlsClientHelloBytes" to clientHelloBytes,
-          "tlsRecordVersion" to tlsMeta?.recordVersion,
-          "tlsClientVersion" to tlsMeta?.clientVersion,
-          "tlsAlpnProtocols" to if (tlsMeta?.alpnProtocols?.isNotEmpty() == true) tlsMeta.alpnProtocols else null,
-          "tlsSniPresent" to (tlsMeta?.sniPresent ?: !sniHostname.isNullOrBlank()),
-        ) + ClientAttributionHeaders.asCaptureFields(effectiveClientAttribution),
-      )
+      runCatching { tlsSocket.close() }
       MitmOutcome.Success
     } catch (e: Exception) {
       runCatching { socket?.close() }
@@ -605,10 +685,31 @@ class LocalProxyServer(
         MitmOutcome.FailOpenPassthrough(detail)
       } else if (isTlsHandshakeFailure(e)) {
         MitmOutcome.HandshakeRejected(detail)
+      } else if (e is SocketTimeoutException && !sawHttpRequest) {
+        // Client silent after MITM handshake — cannot fail-open this socket; bypass for retries.
+        MitmOutcome.HardFailure(
+          detail = "guess=empty; bytes=0; cause=timeout",
+          peekBytes = capturedPeek,
+          bypassHost = true,
+          reasonCode = "mitm_no_request",
+        )
+      } else if (e is SocketTimeoutException && sawHttpRequest) {
+        // Keep-alive idle timeout after at least one request — success, not an error capture.
+        MitmOutcome.Success
       } else {
-        MitmOutcome.HardFailure(detail, capturedPeek)
+        MitmOutcome.HardFailure(
+          detail = detail,
+          peekBytes = capturedPeek,
+          bypassHost = false,
+          reasonCode = "mitm_error",
+        )
       }
     }
+  }
+
+  companion object {
+    private const val MITM_MAX_KEEPALIVE_REQUESTS = 64
+    private const val MITM_KEEPALIVE_IDLE_MS = 15_000
   }
 
   private fun runPassthrough(
@@ -627,6 +728,7 @@ class LocalProxyServer(
     tlsMeta: TlsSni.ClientHelloMeta?,
     clientHelloBytes: Int,
     detail: String? = null,
+    bypassCause: String? = null,
   ) {
     try {
       val upstream = connectUpstreamSocket(connectHost, port, 20_000)
@@ -650,6 +752,7 @@ class LocalProxyServer(
         tlsMeta = tlsMeta,
         clientHelloBytes = clientHelloBytes,
         note = detail,
+        bypassCause = bypassCause,
       )
       relayBidirectional(client, upstream)
     } catch (e: Exception) {
@@ -669,6 +772,7 @@ class LocalProxyServer(
         tlsMeta = tlsMeta,
         clientHelloBytes = clientHelloBytes,
         note = failure.detail,
+        bypassCause = bypassCause,
       )
       runCatching { client.close() }
     }
@@ -690,6 +794,7 @@ class LocalProxyServer(
     clientHelloBytes: Int,
     note: String?,
     peekBytes: ByteArray? = null,
+    bypassCause: String? = null,
   ) {
     val bodyText = buildString {
       append(reasonCode)
@@ -703,40 +808,44 @@ class LocalProxyServer(
     } else {
       mapOf("kind" to "empty", "size" to 0)
     }
+    val fields = mutableMapOf<String, Any?>(
+      "id" to id,
+      "startedAt" to startedAt,
+      "method" to "CONNECT",
+      "scheme" to "https",
+      "host" to host,
+      "path" to "/",
+      "query" to "",
+      "status" to status,
+      "requestHeaders" to emptyMap<String, String>(),
+      "responseHeaders" to emptyMap<String, String>(),
+      "requestBody" to requestBody,
+      "responseBody" to classifyBody(bodyText.toByteArray(), "text/plain"),
+      "timing" to timing(totalMs = maxOf(1L, System.currentTimeMillis() - startedAt)),
+      "reasonCode" to reasonCode,
+      "hostnameSource" to hostnameSource,
+      "hostnameConfidence" to hostnameConfidence,
+      "sniHostname" to sniHostname,
+      "rawTarget" to "$connectHost:$connectPort",
+      "connectTarget" to "$connectHost:$connectPort",
+      "connectHost" to connectHost,
+      "connectPort" to connectPort,
+      "effectiveHost" to host,
+      "captureMode" to "tunnel",
+      "httpPayloadAvailable" to false,
+      "captureSummary" to summaryForReason(reasonCode, note, bypassCause),
+      "tlsClientHelloBytes" to clientHelloBytes,
+      "tlsRecordVersion" to tlsMeta?.recordVersion,
+      "tlsClientVersion" to tlsMeta?.clientVersion,
+      "tlsAlpnProtocols" to if (tlsMeta?.alpnProtocols?.isNotEmpty() == true) tlsMeta.alpnProtocols else null,
+      "tlsSniPresent" to (tlsMeta?.sniPresent ?: !sniHostname.isNullOrBlank()),
+    )
+    if (!bypassCause.isNullOrBlank()) {
+      fields["bypassCause"] = bypassCause
+    }
     CaptureStore.append(
       context,
-      mapOf(
-        "id" to id,
-        "startedAt" to startedAt,
-        "method" to "CONNECT",
-        "scheme" to "https",
-        "host" to host,
-        "path" to "/",
-        "query" to "",
-        "status" to status,
-        "requestHeaders" to emptyMap<String, String>(),
-        "responseHeaders" to emptyMap<String, String>(),
-        "requestBody" to requestBody,
-        "responseBody" to classifyBody(bodyText.toByteArray(), "text/plain"),
-        "timing" to timing(totalMs = maxOf(1L, System.currentTimeMillis() - startedAt)),
-        "reasonCode" to reasonCode,
-        "hostnameSource" to hostnameSource,
-        "hostnameConfidence" to hostnameConfidence,
-        "sniHostname" to sniHostname,
-        "rawTarget" to "$connectHost:$connectPort",
-        "connectTarget" to "$connectHost:$connectPort",
-        "connectHost" to connectHost,
-        "connectPort" to connectPort,
-        "effectiveHost" to host,
-        "captureMode" to "tunnel",
-        "httpPayloadAvailable" to false,
-        "captureSummary" to summaryForReason(reasonCode, note),
-        "tlsClientHelloBytes" to clientHelloBytes,
-        "tlsRecordVersion" to tlsMeta?.recordVersion,
-        "tlsClientVersion" to tlsMeta?.clientVersion,
-        "tlsAlpnProtocols" to if (tlsMeta?.alpnProtocols?.isNotEmpty() == true) tlsMeta.alpnProtocols else null,
-        "tlsSniPresent" to (tlsMeta?.sniPresent ?: !sniHostname.isNullOrBlank()),
-      ) + ClientAttributionHeaders.asCaptureFields(clientAttribution),
+      fields + ClientAttributionHeaders.asCaptureFields(clientAttribution),
     )
   }
 
@@ -1193,7 +1302,21 @@ private fun upstreamFailureDetail(
       message.contains("certpath")
   }
 
-  private fun summaryForReason(reasonCode: String, detail: String? = null): String {
+  private fun bypassCauseLabel(cause: String?): String? = when (cause) {
+    "mitm_handshake_failed" -> "trust fail"
+    "mitm_unsupported" -> "unsupported protocol"
+    "mitm_no_request" -> "no request"
+    "mitm_websocket" -> "websocket"
+    null, "" -> null
+    else -> cause.replace('_', ' ')
+  }
+
+  private fun summaryForReason(
+    reasonCode: String,
+    detail: String? = null,
+    bypassCause: String? = null,
+  ): String {
+    val d = detail.orEmpty()
     val base = when (reasonCode) {
       "decrypted" -> "TLS decrypted via MITM; full HTTP payload available."
       "http_plain" -> "Plain HTTP capture; full request/response payload available."
@@ -1201,11 +1324,35 @@ private fun upstreamFailureDetail(
       "ca_missing" -> "CA certificate is missing; connection is captured as a tunnel only."
       "ip_no_sni" -> "Target is an IP without SNI; connection is captured as a tunnel only."
       "no_client_hello" -> "No TLS ClientHello observed; connection is captured as a tunnel only."
-      "mitm_bypassed" -> "Host is in MITM bypass list; connection is captured as a tunnel only. Stop VPN to clear."
+      "mitm_bypassed" -> {
+        val causeLabel = bypassCauseLabel(bypassCause)
+        if (causeLabel != null) {
+          "Session bypass ($causeLabel); connection is captured as a tunnel only. Stop VPN to clear."
+        } else {
+          "Host is in MITM bypass list; connection is captured as a tunnel only. Stop VPN to clear."
+        }
+      }
       "mitm_fail_open" -> "MITM failed; proxy switched to fail-open tunnel mode."
       "mitm_handshake_failed" -> "TLS handshake rejected (client did not trust Lenswire CA, or TLS mismatch). Host bypassed for this VPN session."
-      "mitm_unsupported" -> "Unsupported protocol after MITM (e.g. HTTP/2 or binary); connection closed and host bypassed for this VPN session."
-      "mitm_websocket" -> "WebSocket upgrade is not supported; connection closed and host bypassed for this VPN session."
+      "mitm_unsupported" -> when {
+        d.contains("guess=http2", ignoreCase = true) ->
+          "HTTP/2 after MITM handshake; connection closed and host bypassed for this VPN session."
+        d.contains("guess=non_http", ignoreCase = true) ->
+          "Non-HTTP/binary payload after MITM handshake; connection closed and host bypassed for this VPN session."
+        d.contains("guess=http11", ignoreCase = true) ->
+          "Unsupported HTTP method after MITM; connection closed and host bypassed for this VPN session."
+        else ->
+          "Unsupported protocol after MITM; connection closed and host bypassed for this VPN session."
+      }
+      "mitm_no_request" -> when {
+        d.contains("cause=timeout", ignoreCase = true) ->
+          "No HTTP request after MITM handshake (read timeout); connection closed and host bypassed for this VPN session."
+        d.contains("cause=eof", ignoreCase = true) || d.contains("guess=empty", ignoreCase = true) ->
+          "No HTTP request after MITM handshake (client closed); connection closed. Host was not added to session bypass."
+        else ->
+          "No HTTP request after MITM handshake; connection closed and host bypassed for this VPN session."
+      }
+      "mitm_websocket" -> "WebSocket upgrade was relayed historically; prefer websocket_relay (frames not inspected)."
       "websocket_relay" -> "WebSocket upgrade relayed to upstream; frames are not inspected."
       "mitm_error" -> "MITM proxy error after TLS handshake; connection closed (not fail-open tunnel)."
       "alpn_no_http11" -> "ClientHello ALPN has no http/1.1; connection is captured as a tunnel only."
@@ -1291,6 +1438,7 @@ private fun upstreamFailureDetail(
     mitmStartMs: Long,
     scheme: String,
     captureMode: String,
+    tlsNegotiatedAlpn: String? = null,
   ): MitmOutcome {
     var upstream: Socket? = null
     return try {
@@ -1351,6 +1499,8 @@ private fun upstreamFailureDetail(
           "tlsClientVersion" to tlsMeta?.clientVersion,
           "tlsAlpnProtocols" to if (tlsMeta?.alpnProtocols?.isNotEmpty() == true) tlsMeta.alpnProtocols else null,
           "tlsSniPresent" to (tlsMeta?.sniPresent ?: !sniHostname.isNullOrBlank()),
+          "tlsNegotiatedAlpn" to tlsNegotiatedAlpn,
+          "upstreamHttpVersion" to "HTTP/1.1",
         ) + ClientAttributionHeaders.asCaptureFields(clientAttribution),
       )
 
