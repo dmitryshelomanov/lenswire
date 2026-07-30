@@ -111,8 +111,9 @@ Use a rooted AVD (**system image without Google Play**):
 npm run android:trust-ca
 ```
 
-3. After reboot: Settings → Security → Trusted credentials → **System** → confirm **Lenswire CA**
-4. Lenswire → HTTPS decryption **Enabled** → Start → open `https://example.com` or `https://m.vk.ru`
+On **Android 14+** this overlays the Conscrypt APEX trust store (not only `/system/etc/security/cacerts`). Manual “Install CA” (User store) is **not** enough for Chrome. Settings → Trusted credentials may not list the CA even when trust works — rely on decrypt succeeding.
+
+3. Force-stop Chrome (script does this), then: Lenswire → HTTPS decryption **Enabled** → Start → open `https://example.com` or `https://m.vk.ru`
 
 Expect decrypted `GET`/`POST` rows (not only `CONNECT`). Google/pinned apps may stay tunnel-only.
 
