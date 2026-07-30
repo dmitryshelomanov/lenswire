@@ -1,4 +1,4 @@
-import { File, Paths } from 'expo-file-system';
+import { Directory, File, Paths } from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
 import * as React from 'react';
 import { Alert, Linking, Share } from 'react-native';
@@ -16,8 +16,15 @@ import {
   ANDROID_TRUST_COMMAND,
 } from '../lib/android-ca-guidance';
 
+const ANDROID_CA_MIME = 'application/x-x509-ca-cert';
+
 function toFileUri(path: string): string {
   return path.startsWith('file://') ? path : `file://${path}`;
+}
+
+function isPickerCancelled(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return /cancell?ed by the user/i.test(message);
 }
 
 type UseCertificateActionsArgs = {
@@ -117,34 +124,39 @@ export function useCertificateActions({
       return;
     }
 
+    const source = new File(toFileUri(exportPath));
+    if (!source.exists) {
+      Alert.alert('Certificate file missing', 'Generate the CA again, then retry Save.');
+      return;
+    }
+
     try {
+      if (isAndroid) {
+        const dir = await Directory.pickDirectoryAsync();
+        const dest = dir.createFile(source.name, ANDROID_CA_MIME);
+        dest.write(await source.bytes());
+        Alert.alert(
+          'Install as CA certificate',
+          `Saved. Open Settings and install via:\n\n${ANDROID_CA_INSTALL_PATH}\n\n${ANDROID_CA_TYPE_WARNING}`,
+        );
+        return;
+      }
+
       const available = await Sharing.isAvailableAsync();
       if (!available) {
         Alert.alert('Sharing unavailable', 'This device cannot share files.');
         return;
       }
 
-      const source = new File(toFileUri(exportPath));
-      if (!source.exists) {
-        Alert.alert('Certificate file missing', 'Generate the CA again, then retry Save.');
-        return;
-      }
-
       const shareFile = new File(Paths.cache, source.name);
       await source.copy(shareFile, { overwrite: true });
       await Sharing.shareAsync(shareFile.uri, {
-        mimeType: isAndroid ? 'application/x-x509-ca-cert' : 'application/x-pem-file',
-        UTI: isAndroid ? 'public.x509-certificate' : 'public.pem',
+        mimeType: 'application/x-pem-file',
+        UTI: 'public.pem',
         dialogTitle: 'Lenswire CA',
       });
-
-      if (isAndroid) {
-        Alert.alert(
-          'Install as CA certificate',
-          `After saving, open Settings and install via:\n\n${ANDROID_CA_INSTALL_PATH}\n\n${ANDROID_CA_TYPE_WARNING}`,
-        );
-      }
     } catch (error) {
+      if (isPickerCancelled(error)) return;
       const message = error instanceof Error ? error.message : String(error);
       Alert.alert('Unable to save certificate', message);
     }

@@ -14,7 +14,7 @@ export const ANDROID_PINNING_NOTE =
 
 const BASE_ANDROID_STEPS = [
   'Tap Generate CA, then Install (User store). Prefer Install over opening the .cer from Downloads.',
-  `If Install opens nothing: Save certificate -> ${ANDROID_CA_INSTALL_PATH}.`,
+  `If Install opens nothing: Save certificate -> choose Downloads (or any folder) -> ${ANDROID_CA_INSTALL_PATH}.`,
   ANDROID_CA_TYPE_WARNING,
   'Settings -> HTTPS decryption Enabled -> Start -> open https://example.com',
   'On Android 7+, Chrome ignores User CAs - browser decrypt needs a System CA (emulator only) or disable decryption to browse.',
