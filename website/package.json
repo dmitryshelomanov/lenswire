@@ -7,12 +7,13 @@
     "build": "next build && touch out/.nojekyll",
     "start": "next start",
     "deploy": "npm run build && gh-pages -d out --dotfiles",
-    "lint": "expo lint"
+    "lint": "tsc --noEmit"
   },
   "dependencies": {
     "next": "^15.5.0",
     "react": "^19.1.0",
-    "react-dom": "^19.1.0"
+    "react-dom": "^19.1.0",
+    "sugar-high": "^1.2.1"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.3.3",

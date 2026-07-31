@@ -65,7 +65,7 @@ export const spotlights = [
     body: 'Start the VPN, watch domains appear, and open paths with method and status — decrypted when your CA is trusted.',
     src: '/screenshots/traffic.jpg',
     alt: 'Lenswire traffic list',
-    wash: 'from-[#0B3D91]/to-[#48CAE4]',
+    wash: 'from-[#0B3D91] to-[#48CAE4]',
   },
   {
     eyebrow: 'Inspect',
@@ -74,7 +74,7 @@ export const spotlights = [
     src: '/screenshots/request.jpg',
     alt: 'Lenswire request detail',
     reverse: true,
-    wash: 'from-[#023E8A]/to-[#00B4D8]',
+    wash: 'from-[#023E8A] to-[#00B4D8]',
   },
   {
     eyebrow: 'Override',
@@ -82,7 +82,7 @@ export const spotlights = [
     body: 'Create an override from a captured call — mock the response, or rewrite what goes to the server.',
     src: '/screenshots/settings.jpg',
     alt: 'Lenswire traffic overrides settings',
-    wash: 'from-[#03045E]/to-[#0077B6]',
+    wash: 'from-[#03045E] to-[#0077B6]',
   },
 ] as const;
 
@@ -134,62 +134,92 @@ export const faqs = [
   },
 ] as const;
 
+export const REPO_URL = 'https://github.com/dmitryshelomanov/lenswire';
+export const REPO_BLOB =
+  `${REPO_URL}/blob/main/modules/lenswire-proxy/android/src/main/java/expo/modules/lenswireproxy` as const;
+export const QUICK_START_URL = `${REPO_URL}#readme` as const;
+export const ANDROID_BUILD_URL = `${REPO_URL}#android--google-play` as const;
+
+export const getStarted = {
+  title: 'Get the app',
+  lead: 'Build a preview APK for Android, or clone the repo and run with Expo. Store builds are in progress.',
+  primaryLabel: 'Quick start on GitHub',
+  primaryHref: QUICK_START_URL,
+  secondaryLabel: 'Android preview build',
+  secondaryHref: ANDROID_BUILD_URL,
+} as const;
+
 export const howTeaser = {
   title: 'MITM when we can, tunnel when we can’t',
-  lead: 'Local VPN feeds an on-device proxy. If ClientHello ALPN allows HTTP/1.1 — including after h2→h1.1 — we decrypt. Pure h2/h3 goes straight to tunnel; WebSockets relay without inspecting frames.',
+  lead: 'Every HTTPS connection takes one path: decrypt and inspect, or a sealed byte tunnel. You still see the connection either way — payload only when MITM succeeds.',
   cta: 'See how it works',
 } as const;
 
 export const howItWorks = {
   title: 'How the pipe works',
-  lead: 'Apps hit a local VPN. Lenswire peeks ClientHello ALPN: offer HTTP/1.1 and we MITM (force that ALPN); only h2/h3 and other opaque traffic stay a transparent tunnel.',
+  lead: 'Apps hit a local VPN. The proxy checks whether it can decrypt HTTPS. If yes — MITM: open the bytes, inspect, send them on. If not — a sealed byte tunnel; you still see the connection in the UI, but not the HTTP payload.',
   platformNote: 'iOS Packet Tunnel · Android VpnService → tun2socks → SOCKS',
+  fork: {
+    intro: 'The fork',
+    heading: 'One gate. Two exits.',
+    lead: 'Before any decrypt, the proxy decides canMitm. Decrypt off, missing CA, no SNI, session bypass, or ALPN without HTTP/1.1 → runPassthrough. Otherwise → runMitm.',
+    code: `if (!canMitm) {
+  runPassthrough(/* … */, reasonCode = …)  // captureMode: tunnel
+  return
+}
+runMitm(/* … */)  // decrypt → inspect → upstream → encrypt back`,
+    sourceLabel: 'View canMitm gate · LocalProxyServer.kt',
+    sourceHref: `${REPO_BLOB}/LocalProxyServer.kt#L283-L335`,
+  },
   mitm: {
     title: 'We MITM',
-    lead: 'Open the bytes — decrypt, inspect, override.',
+    lead: 'Terminate TLS with the app → read HTTP → talk to the server → encrypt back.',
     items: [
       {
         label: 'HTTP/1.1',
-        body: 'ClientHello includes http/1.1 (often with h2). We force ALPN http/1.1, then decrypt request and response — JSON, images, fonts, and more — with keep-alive on the TLS socket. Overrides land here.',
+        body: 'When the client offers http/1.1 (often with h2), we force that ALPN, decrypt request and response, and show full payload in the UI. Overrides land here.',
         code: 'decrypted',
+        sourceHref: `${REPO_BLOB}/LocalProxyServer.kt#L426`,
       },
       {
         label: 'WebSocket',
-        body: 'After MITM TLS, Upgrade is detected and relayed end-to-end. Frames are not inspected; the host is not added to session bypass.',
+        body: 'After MITM TLS, Upgrade is relayed end-to-end. Frames are not inspected; the host is not added to session bypass.',
         code: 'websocket_relay',
       },
     ],
   },
   tunnel: {
     title: 'We tunnel',
-    lead: 'Keep it sealed — encrypted bytes pass through, no payload in the UI.',
+    lead: 'runPassthrough relays encrypted bytes as-is. captureMode: tunnel — payload unavailable in the UI.',
     items: [
       {
         label: 'ALPN without HTTP/1.1',
-        body: 'ClientHello only offers h2 or h3. We never start MITM — straight tunnel. The app shows HTTP/2 or HTTP/3 with an h2-only / h3-only badge, not a decrypted call.',
+        body: 'ClientHello only offers h2 or h3. We never start MITM — straight tunnel. UI shows HTTP/2 or HTTP/3, not a decrypted call.',
         code: 'alpn_no_http11',
+        sourceHref: `${REPO_BLOB}/LocalProxyServer.kt#L290-L306`,
       },
       {
         label: 'Session bypass',
-        body: 'Trust fail, or HTTP/2/binary after MITM (client ignored ALPN and sent PRI) → that connect closes and the host stays tunnel-only until you stop VPN. The app shows which cause triggered bypass.',
+        body: 'Trust fail or non-HTTP/1.1 after handshake → that connect closes; the host stays tunnel-only until you stop VPN. UI shows the bypass cause.',
         code: 'mitm_bypassed',
       },
       {
         label: 'No request after handshake',
-        body: 'Read timeout with no HTTP → close and bypass so retries tunnel. Client closed with zero bytes (EOF) → close without bypass, so CDN speculative connects can still be MITM’d next time.',
+        body: 'Timeout with no HTTP → close and bypass so retries tunnel. Empty EOF → close without bypass, so speculative CDN connects can still MITM next time.',
         code: 'mitm_no_request',
       },
       {
         label: 'Decrypt off / no CA / no SNI',
-        body: 'MITM impossible up front. Still captured — as a tunnel, not a decrypted call.',
+        body: 'MITM impossible up front. Still captured as a tunnel via runPassthrough — not a decrypted call.',
         code: 'passthrough',
+        sourceHref: `${REPO_BLOB}/LocalProxyServer.kt#L759`,
       },
     ],
   },
   protocolsIntro: 'Same pipe. Two exits.',
   protocolsHeading: 'Open the payload — or keep it sealed',
   protocolsLead:
-    'Decrypted calls show as HTTP/1.1. Pure h2/h3-only tunnels get HTTP/2 or HTTP/3 flags. A successful ALPN downgrade is not labeled as HTTP/2 — you see the inspectable HTTP/1.1 payload.',
+    'MITM calls show as HTTP/1.1 with full headers and body. Pure h2/h3 tunnels get version flags only. A successful downgrade is labeled HTTP/1.1 — the inspectable payload you actually got.',
   ctaTitle: 'Free and open source',
   ctaBody: 'MIT licensed. Capture and decrypt stay on your device.',
 } as const;

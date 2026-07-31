@@ -1,8 +1,15 @@
+import { CodeBlock } from '@/components/CodeBlock';
 import { howItWorks } from '@/lib/content';
 
 export function HowPipeline() {
   return (
-    <div className="how-pipeline relative mx-auto w-full max-w-4xl" aria-hidden="true">
+    <div className="how-pipeline relative mx-auto w-full max-w-4xl">
+      <p className="sr-only">
+        Traffic flows from apps through a local VPN into the Lenswire proxy. The proxy either
+        decrypts HTTPS with MITM for inspection, or relays a sealed byte tunnel when decryption is
+        not possible. Results appear in the Lenswire UI.
+      </p>
+      <div aria-hidden="true">
       {/* Desktop: horizontal fork */}
       <svg
         className="hidden h-auto w-full sm:block"
@@ -41,7 +48,7 @@ export function HowPipeline() {
           className="how-pipeline-path"
         />
 
-        {/* Fork: Decrypt (upper) */}
+        {/* Fork: MITM (upper) */}
         <path
           d="M420 110 C480 110 500 55 560 55 H700"
           stroke="#90E0EF"
@@ -79,7 +86,7 @@ export function HowPipeline() {
           className="how-pipeline-path how-pipeline-tunnel"
         />
 
-        {/* Packet on decrypt path */}
+        {/* Packet on MITM path */}
         <circle r="5.5" fill="#E0FBFC" filter="url(#how-glow)" className="how-packet">
           <animateMotion
             dur="4.8s"
@@ -101,7 +108,7 @@ export function HowPipeline() {
         <StageDot cx={70} cy={110} label="Apps" />
         <StageDot cx={280} cy={110} label="VPN" />
         <StageDot cx={420} cy={110} label="Local proxy" />
-        <StageDot cx={700} cy={55} label="Decrypt" accent />
+        <StageDot cx={700} cy={55} label="MITM" accent />
         <StageDot cx={700} cy={165} label="Tunnel" muted />
         <StageDot cx={830} cy={110} label="UI" />
       </svg>
@@ -179,10 +186,11 @@ export function HowPipeline() {
         <StageDot cx={140} cy={40} label="Apps" />
         <StageDot cx={140} cy={160} label="VPN" />
         <StageDot cx={140} cy={240} label="Local proxy" />
-        <StageDot cx={70} cy={400} label="Decrypt" accent />
+        <StageDot cx={70} cy={400} label="MITM" accent />
         <StageDot cx={210} cy={400} label="Tunnel" muted />
         <StageDot cx={140} cy={480} label="UI" />
       </svg>
+      </div>
     </div>
   );
 }
@@ -228,6 +236,40 @@ function StageDot({
   );
 }
 
+export function HowFork() {
+  const { fork } = howItWorks;
+  return (
+    <div className="how-fork mx-auto max-w-2xl">
+      <div className="text-center">
+        <p className="text-base font-medium tracking-wide text-navy">{fork.intro}</p>
+        <h2 className="mt-3 font-display text-4xl tracking-tight sm:text-5xl">{fork.heading}</h2>
+        <p className="mt-5 text-lg leading-relaxed text-muted sm:text-xl">{fork.lead}</p>
+      </div>
+      <CodeBlock
+        code={fork.code}
+        className="how-code mt-10 overflow-x-auto rounded-2xl bg-ink px-5 py-5 text-left sm:px-6 sm:py-6"
+      />
+      <p className="mt-4 text-center">
+        <a
+          href={fork.sourceHref}
+          className="font-mono text-sm text-navy/70 no-underline transition hover:text-navy"
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          {fork.sourceLabel} →
+        </a>
+      </p>
+    </div>
+  );
+}
+
+type ProtocolItem = {
+  label: string;
+  body: string;
+  code: string;
+  sourceHref?: string;
+};
+
 export function HowProtocols() {
   const { mitm, tunnel, protocolsIntro, protocolsHeading, protocolsLead } = howItWorks;
   return (
@@ -248,7 +290,7 @@ export function HowProtocols() {
         />
 
         <ProtocolLane
-          eyebrow="Decrypt path"
+          eyebrow="MITM path"
           title={mitm.title}
           lead={mitm.lead}
           items={mitm.items}
@@ -276,7 +318,7 @@ function ProtocolLane({
   eyebrow: string;
   title: string;
   lead: string;
-  items: readonly { label: string; body: string; code: string }[];
+  items: readonly ProtocolItem[];
   tone: 'mitm' | 'tunnel';
 }) {
   const isMitm = tone === 'mitm';
@@ -326,6 +368,20 @@ function ProtocolLane({
               >
                 {item.code}
               </code>
+              {item.sourceHref ? (
+                <a
+                  href={item.sourceHref}
+                  className={`font-mono text-[0.7rem] tracking-wide no-underline transition sm:text-xs ${
+                    isMitm
+                      ? 'text-cyan/70 hover:text-cyan'
+                      : 'text-navy/40 hover:text-navy/70'
+                  }`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  source →
+                </a>
+              ) : null}
             </div>
             <p className="mt-2 max-w-md text-base leading-relaxed text-muted sm:text-lg">
               {item.body}

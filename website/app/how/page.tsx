@@ -1,22 +1,22 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import { HowPipeline, HowProtocols } from '@/components/HowItWorks';
+import { HowFork, HowPipeline, HowProtocols } from '@/components/HowItWorks';
 import { SiteFooter } from '@/components/SiteFooter';
 import { SiteHeader } from '@/components/SiteHeader';
 import { withBasePath } from '@/lib/basePath';
-import { howItWorks } from '@/lib/content';
+import { howItWorks, REPO_URL } from '@/lib/content';
 
 export const metadata: Metadata = {
   title: 'How the pipe works',
   description:
-    'How Lenswire captures traffic: ClientHello ALPN gate, HTTP/1.1 MITM after h2→h1.1 downgrade, pure h2/h3 tunnel, WebSocket relay, and session bypass.',
+    'How Lenswire captures traffic: MITM when HTTPS can be decrypted, sealed byte tunnel when it can’t. Payload only on the MITM path.',
   alternates: {
     canonical: '/how/',
   },
   openGraph: {
     title: 'How the pipe works · Lenswire',
     description:
-      'Local VPN → ALPN decides the path. Decrypt HTTP/1.1 when we can; pure h2/h3 and opaque traffic tunnel. WebSocket relay without bypass.',
+      'Local VPN → canMitm gate. Decrypt and inspect when we can; otherwise runPassthrough — sealed tunnel, no HTTP payload in the UI.',
     url: '/how/',
   },
 };
@@ -56,6 +56,11 @@ export default function HowPage() {
         <section className="relative overflow-hidden border-b border-line bg-wash">
           <div className="pointer-events-none absolute -left-24 top-0 h-72 w-72 rounded-full bg-cyan/10 blur-3xl" />
           <div className="pointer-events-none absolute -right-16 bottom-0 h-64 w-64 rounded-full bg-navy/10 blur-3xl" />
+
+          <div className="relative mx-auto max-w-5xl px-5 pt-20 sm:pt-28">
+            <HowFork />
+          </div>
+
           <div className="relative mx-auto max-w-5xl px-5 pt-20 sm:pt-28">
             <HowProtocols />
           </div>
@@ -77,7 +82,7 @@ export default function HowPage() {
               </p>
               <div className="mt-8">
                 <a
-                  href="https://github.com/dmitryshelomanov/lenswire"
+                  href={REPO_URL}
                   className="inline-flex h-12 items-center rounded-full bg-ink px-6 text-base font-medium text-white no-underline transition hover:bg-navy"
                 >
                   View on GitHub

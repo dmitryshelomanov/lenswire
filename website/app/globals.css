@@ -33,6 +33,17 @@ body {
   background: color-mix(in srgb, var(--color-cyan) 28%, white);
 }
 
+:focus-visible {
+  outline: 2px solid var(--color-navy);
+  outline-offset: 3px;
+}
+
+a:focus-visible,
+button:focus-visible,
+summary:focus-visible {
+  border-radius: 0.5rem;
+}
+
 /* How-it-works pipeline: stage dots stagger in */
 @keyframes how-stage-in {
   from {
@@ -96,4 +107,27 @@ body {
   .how-protocol-item {
     animation: none;
   }
+}
+
+.how-code {
+  box-shadow: 0 18px 40px -24px rgba(11, 18, 32, 0.55);
+  --sh-class: #48cae4;
+  --sh-identifier: #48cae4;
+  --sh-sign: rgba(255, 255, 255, 0.72);
+  --sh-property: #7dd3fc;
+  --sh-entity: #48cae4;
+  --sh-jsxliterals: #48cae4;
+  --sh-string: #90e0ef;
+  --sh-keyword: #7dd3fc;
+  --sh-comment: #5b9ea6;
+  --sh-space: transparent;
+}
+
+.how-code code {
+  white-space: pre;
+  color: var(--color-sky);
+}
+
+.how-code .sh__line {
+  display: block;
 }
