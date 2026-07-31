@@ -159,7 +159,7 @@ Toggle **HTTPS decryption** in Settings. Apps with certificate pinning will fail
 
 Packet Tunnel does **not** work on Simulator (`IPC failed`). Full capture requires a physical device (see **Run → iOS** above).
 
-Optional Mac HTTP proxy for Simulator Safari: `npm run sim:mac-proxy-on` / `sim:mac-proxy-off`, plus `npm run sim:trust-ca` after Generate CA.
+After Generate CA on Simulator you can still trust it with `npm run sim:trust-ca` (UI / cert flows only — no tunnel capture).
 
 ## Android full-device mode
 
@@ -281,7 +281,6 @@ Key components:
 | `npm run website:dev` / `website:deploy`    | Landing page (GitHub Pages)                         |
 | `npm run sim:trust-ca`                      | Trust app-generated CA in booted iOS Simulator      |
 | `npm run android:trust-ca`                  | Install Lenswire CA into System store (rooted AVD)  |
-| `npm run sim:mac-proxy-on/off`              | Mac HTTP(S) proxy helpers                           |
 
 ## About
 
