@@ -3,47 +3,23 @@ export function CompareCell({ value, emphasize }: { value: string; emphasize?: b
   const isNo = value === 'no';
 
   if (isYes) {
+    const note = value !== 'yes' ? value.replace(/^yes\s*/, '') : null;
     return (
       <span
-        className={`inline-flex flex-col items-center gap-1 ${emphasize ? 'text-navy' : 'text-ink'}`}
+        className={`inline-flex flex-col items-center gap-0.5 ${
+          emphasize ? 'font-medium text-navy' : 'text-ink'
+        }`}
       >
-        <svg
-          width={20}
-          height={20}
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth={2}
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          aria-hidden
-        >
-          <path d="M5 12.5 10 17.5 19 7" />
-        </svg>
-        {value !== 'yes' ? (
-          <span className="text-sm font-medium leading-none">{value.replace(/^yes\s*/, '')}</span>
-        ) : (
-          <span className="sr-only">Yes</span>
-        )}
+        <span>Yes</span>
+        {note ? <span className="text-xs font-normal text-muted">{note}</span> : null}
       </span>
     );
   }
 
   if (isNo) {
     return (
-      <span className="inline-flex justify-center text-muted" aria-label="No">
-        <svg
-          width={18}
-          height={18}
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth={1.8}
-          strokeLinecap="round"
-          aria-hidden
-        >
-          <path d="M6 12h12" />
-        </svg>
+      <span className="text-muted" aria-label="No">
+        —
       </span>
     );
   }

@@ -8,7 +8,7 @@ export function FeatureIcon({ index }: { index: number }) {
     strokeWidth: 1.6,
     strokeLinecap: 'round' as const,
     strokeLinejoin: 'round' as const,
-    className: 'text-ink',
+    className: 'text-navy',
     'aria-hidden': true as const,
   };
 

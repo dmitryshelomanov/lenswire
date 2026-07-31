@@ -281,20 +281,20 @@ function SourcePair({
 export function HowFork() {
   const { fork } = howItWorks;
   return (
-    <div className="how-fork mx-auto max-w-2xl">
-      <div className="text-center">
+    <div className="how-fork max-w-2xl">
+      <div>
         <p className="text-base font-medium tracking-wide text-navy">{fork.intro}</p>
         <h2 className="mt-3 font-display text-4xl tracking-tight sm:text-5xl">{fork.heading}</h2>
         <p className="mt-5 text-lg leading-relaxed text-muted sm:text-xl">{fork.lead}</p>
       </div>
       <CodeBlock
         code={fork.code}
-        className="how-code mt-10 overflow-x-auto rounded-2xl bg-ink px-5 py-5 text-left sm:px-6 sm:py-6"
+        className="how-code mt-8 overflow-x-auto rounded-lg bg-ink px-5 py-5 text-left sm:px-6 sm:py-6"
       />
-      <p className="mt-4 text-center font-mono text-sm text-navy/70">
+      <p className="mt-3 font-mono text-sm text-navy/70">
         <SourcePair
           sources={fork.sources}
-          className="justify-center [&_a]:text-navy/70 [&_a]:hover:text-navy"
+          className="[&_a]:text-navy/70 [&_a]:hover:text-navy"
           prefix={`${fork.sourceLabel} ·`}
         />
       </p>
@@ -313,7 +313,7 @@ export function HowProtocols() {
   const { mitm, tunnel, protocolsIntro, protocolsHeading, protocolsLead } = howItWorks;
   return (
     <div className="how-protocols">
-      <div className="mx-auto max-w-2xl text-center">
+      <div className="max-w-2xl">
         <p className="text-base font-medium tracking-wide text-navy">{protocolsIntro}</p>
         <h2 className="mt-3 font-display text-4xl tracking-tight sm:text-5xl">
           {protocolsHeading}
@@ -321,11 +321,10 @@ export function HowProtocols() {
         <p className="mt-5 text-lg leading-relaxed text-muted sm:text-xl">{protocolsLead}</p>
       </div>
 
-      <div className="relative mx-auto mt-16 grid max-w-5xl gap-12 lg:mt-20 lg:grid-cols-2 lg:gap-0">
-        {/* Fork spine — desktop only */}
+      <div className="relative mt-12 grid gap-12 border-t border-line pt-12 lg:mt-16 lg:grid-cols-2 lg:gap-0 lg:pt-16">
         <div
           aria-hidden
-          className="pointer-events-none absolute inset-y-2 left-1/2 hidden w-px -translate-x-1/2 bg-gradient-to-b from-cyan/50 via-line to-navy/25 lg:block"
+          className="pointer-events-none absolute inset-y-4 left-1/2 hidden w-px -translate-x-1/2 bg-line lg:block"
         />
 
         <ProtocolLane
@@ -389,12 +388,9 @@ function ProtocolLane({
         {items.map((item, i) => (
           <li
             key={item.code}
-            className={`how-protocol-item group relative border-l-2 py-5 pl-5 transition-[border-color] duration-300 sm:pl-6 ${
-              isMitm
-                ? 'border-cyan/40 hover:border-cyan'
-                : 'border-dashed border-navy/20 hover:border-navy/45'
+            className={`relative border-l-2 py-5 pl-5 sm:pl-6 ${
+              isMitm ? 'border-cyan/40' : 'border-dashed border-navy/25'
             } ${i === 0 ? 'pt-0' : ''} ${i === items.length - 1 ? 'pb-0' : ''}`}
-            style={{ animationDelay: `${0.08 * i}s` }}
           >
             <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
               <p className="text-lg font-semibold tracking-tight text-ink sm:text-xl">

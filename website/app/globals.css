@@ -88,29 +88,7 @@ summary:focus-visible {
   }
 }
 
-@keyframes how-protocol-in {
-  from {
-    opacity: 0;
-    transform: translateY(10px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-.how-protocol-item {
-  animation: how-protocol-in 0.55s ease both;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .how-protocol-item {
-    animation: none;
-  }
-}
-
 .how-code {
-  box-shadow: 0 18px 40px -24px rgba(11, 18, 32, 0.55);
   --sh-class: #48cae4;
   --sh-identifier: #48cae4;
   --sh-sign: rgba(255, 255, 255, 0.72);
@@ -130,4 +108,8 @@ summary:focus-visible {
 
 .how-code .sh__line {
   display: block;
+}
+
+.compare-sticky {
+  box-shadow: 1px 0 0 var(--color-line);
 }
