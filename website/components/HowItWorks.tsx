@@ -1,5 +1,5 @@
 import { CodeBlock } from '@/components/CodeBlock';
-import { howItWorks } from '@/lib/content';
+import { howItWorks, type SourceLinks } from '@/lib/content';
 
 export function HowPipeline() {
   return (
@@ -10,186 +10,196 @@ export function HowPipeline() {
         not possible. Results appear in the Lenswire UI.
       </p>
       <div aria-hidden="true">
-      {/* Desktop: horizontal fork */}
-      <svg
-        className="hidden h-auto w-full sm:block"
-        viewBox="0 0 900 220"
-        fill="none"
-        xmlns="http://www.w3.org/2000/svg"
-      >
-        <defs>
-          <linearGradient id="how-line" x1="0" y1="0" x2="1" y2="0">
-            <stop offset="0%" stopColor="#48CAE4" stopOpacity="0.35" />
-            <stop offset="50%" stopColor="#90E0EF" stopOpacity="0.9" />
-            <stop offset="100%" stopColor="#48CAE4" stopOpacity="0.35" />
-          </linearGradient>
-          <filter id="how-glow" x="-50%" y="-50%" width="200%" height="200%">
-            <feGaussianBlur stdDeviation="4" result="blur" />
-            <feMerge>
-              <feMergeNode in="blur" />
-              <feMergeNode in="SourceGraphic" />
-            </feMerge>
-          </filter>
-        </defs>
+        {/* Desktop: horizontal fork */}
+        <svg
+          className="hidden h-auto w-full sm:block"
+          viewBox="0 0 900 220"
+          fill="none"
+          xmlns="http://www.w3.org/2000/svg"
+        >
+          <defs>
+            <linearGradient id="how-line" x1="0" y1="0" x2="1" y2="0">
+              <stop offset="0%" stopColor="#48CAE4" stopOpacity="0.35" />
+              <stop offset="50%" stopColor="#90E0EF" stopOpacity="0.9" />
+              <stop offset="100%" stopColor="#48CAE4" stopOpacity="0.35" />
+            </linearGradient>
+            <filter id="how-glow" x="-50%" y="-50%" width="200%" height="200%">
+              <feGaussianBlur stdDeviation="4" result="blur" />
+              <feMerge>
+                <feMergeNode in="blur" />
+                <feMergeNode in="SourceGraphic" />
+              </feMerge>
+            </filter>
+          </defs>
 
-        {/* Trunk: Apps → VPN → Proxy */}
-        <path
-          d="M70 110 H280"
-          stroke="url(#how-line)"
-          strokeWidth="2.5"
-          strokeLinecap="round"
-          className="how-pipeline-path"
-        />
-        <path
-          d="M280 110 H420"
-          stroke="url(#how-line)"
-          strokeWidth="2.5"
-          strokeLinecap="round"
-          className="how-pipeline-path"
-        />
-
-        {/* Fork: MITM (upper) */}
-        <path
-          d="M420 110 C480 110 500 55 560 55 H700"
-          stroke="#90E0EF"
-          strokeWidth="2.5"
-          strokeLinecap="round"
-          className="how-pipeline-path how-pipeline-decrypt"
-          filter="url(#how-glow)"
-        />
-        {/* Fork: Tunnel (lower, dashed) */}
-        <path
-          d="M420 110 C480 110 500 165 560 165 H700"
-          stroke="#48CAE4"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeDasharray="6 7"
-          opacity="0.55"
-          className="how-pipeline-path how-pipeline-tunnel"
-        />
-
-        {/* Merge → UI */}
-        <path
-          d="M700 55 C760 55 780 110 830 110"
-          stroke="#90E0EF"
-          strokeWidth="2.5"
-          strokeLinecap="round"
-          className="how-pipeline-path how-pipeline-decrypt"
-        />
-        <path
-          d="M700 165 C760 165 780 110 830 110"
-          stroke="#48CAE4"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeDasharray="6 7"
-          opacity="0.55"
-          className="how-pipeline-path how-pipeline-tunnel"
-        />
-
-        {/* Packet on MITM path */}
-        <circle r="5.5" fill="#E0FBFC" filter="url(#how-glow)" className="how-packet">
-          <animateMotion
-            dur="4.8s"
-            repeatCount="indefinite"
-            path="M70 110 H420 C480 110 500 55 560 55 H700 C760 55 780 110 830 110"
+          {/* Trunk: Apps → VPN → Proxy */}
+          <path
+            d="M70 110 H280"
+            stroke="url(#how-line)"
+            strokeWidth="2.5"
+            strokeLinecap="round"
+            className="how-pipeline-path"
           />
-        </circle>
-        {/* Dimmer packet on tunnel path */}
-        <circle r="4" fill="#48CAE4" opacity="0.7" className="how-packet">
-          <animateMotion
-            dur="5.6s"
-            begin="1.2s"
-            repeatCount="indefinite"
-            path="M70 110 H420 C480 110 500 165 560 165 H700 C760 165 780 110 830 110"
+          <path
+            d="M280 110 H420"
+            stroke="url(#how-line)"
+            strokeWidth="2.5"
+            strokeLinecap="round"
+            className="how-pipeline-path"
           />
-        </circle>
 
-        {/* Stage labels */}
-        <StageDot cx={70} cy={110} label="Apps" />
-        <StageDot cx={280} cy={110} label="VPN" />
-        <StageDot cx={420} cy={110} label="Local proxy" />
-        <StageDot cx={700} cy={55} label="MITM" accent />
-        <StageDot cx={700} cy={165} label="Tunnel" muted />
-        <StageDot cx={830} cy={110} label="UI" />
-      </svg>
-
-      {/* Mobile: vertical */}
-      <svg
-        className="mx-auto block h-auto w-full max-w-xs sm:hidden"
-        viewBox="0 0 280 520"
-        fill="none"
-        xmlns="http://www.w3.org/2000/svg"
-      >
-        <defs>
-          <linearGradient id="how-line-m" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="#48CAE4" stopOpacity="0.35" />
-            <stop offset="50%" stopColor="#90E0EF" stopOpacity="0.9" />
-            <stop offset="100%" stopColor="#48CAE4" stopOpacity="0.35" />
-          </linearGradient>
-          <filter id="how-glow-m" x="-50%" y="-50%" width="200%" height="200%">
-            <feGaussianBlur stdDeviation="3" result="blur" />
-            <feMerge>
-              <feMergeNode in="blur" />
-              <feMergeNode in="SourceGraphic" />
-            </feMerge>
-          </filter>
-        </defs>
-
-        <path d="M140 40 V160" stroke="url(#how-line-m)" strokeWidth="2.5" strokeLinecap="round" />
-        <path d="M140 160 V240" stroke="url(#how-line-m)" strokeWidth="2.5" strokeLinecap="round" />
-        <path
-          d="M140 240 C140 280 70 300 70 340 V400"
-          stroke="#90E0EF"
-          strokeWidth="2.5"
-          strokeLinecap="round"
-          filter="url(#how-glow-m)"
-        />
-        <path
-          d="M140 240 C140 280 210 300 210 340 V400"
-          stroke="#48CAE4"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeDasharray="6 7"
-          opacity="0.55"
-        />
-        <path
-          d="M70 400 C70 440 140 460 140 480"
-          stroke="#90E0EF"
-          strokeWidth="2.5"
-          strokeLinecap="round"
-        />
-        <path
-          d="M210 400 C210 440 140 460 140 480"
-          stroke="#48CAE4"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeDasharray="6 7"
-          opacity="0.55"
-        />
-
-        <circle r="5" fill="#E0FBFC" filter="url(#how-glow-m)" className="how-packet">
-          <animateMotion
-            dur="5s"
-            repeatCount="indefinite"
-            path="M140 40 V240 C140 280 70 300 70 340 V400 C70 440 140 460 140 480"
+          {/* Fork: MITM (upper) */}
+          <path
+            d="M420 110 C480 110 500 55 560 55 H700"
+            stroke="#90E0EF"
+            strokeWidth="2.5"
+            strokeLinecap="round"
+            className="how-pipeline-path how-pipeline-decrypt"
+            filter="url(#how-glow)"
           />
-        </circle>
-        <circle r="3.5" fill="#48CAE4" opacity="0.7" className="how-packet">
-          <animateMotion
-            dur="5.8s"
-            begin="1.4s"
-            repeatCount="indefinite"
-            path="M140 40 V240 C140 280 210 300 210 340 V400 C210 440 140 460 140 480"
+          {/* Fork: Tunnel (lower, dashed) */}
+          <path
+            d="M420 110 C480 110 500 165 560 165 H700"
+            stroke="#48CAE4"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeDasharray="6 7"
+            opacity="0.55"
+            className="how-pipeline-path how-pipeline-tunnel"
           />
-        </circle>
 
-        <StageDot cx={140} cy={40} label="Apps" />
-        <StageDot cx={140} cy={160} label="VPN" />
-        <StageDot cx={140} cy={240} label="Local proxy" />
-        <StageDot cx={70} cy={400} label="MITM" accent />
-        <StageDot cx={210} cy={400} label="Tunnel" muted />
-        <StageDot cx={140} cy={480} label="UI" />
-      </svg>
+          {/* Merge → UI */}
+          <path
+            d="M700 55 C760 55 780 110 830 110"
+            stroke="#90E0EF"
+            strokeWidth="2.5"
+            strokeLinecap="round"
+            className="how-pipeline-path how-pipeline-decrypt"
+          />
+          <path
+            d="M700 165 C760 165 780 110 830 110"
+            stroke="#48CAE4"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeDasharray="6 7"
+            opacity="0.55"
+            className="how-pipeline-path how-pipeline-tunnel"
+          />
+
+          {/* Packet on MITM path */}
+          <circle r="5.5" fill="#E0FBFC" filter="url(#how-glow)" className="how-packet">
+            <animateMotion
+              dur="4.8s"
+              repeatCount="indefinite"
+              path="M70 110 H420 C480 110 500 55 560 55 H700 C760 55 780 110 830 110"
+            />
+          </circle>
+          {/* Dimmer packet on tunnel path */}
+          <circle r="4" fill="#48CAE4" opacity="0.7" className="how-packet">
+            <animateMotion
+              dur="5.6s"
+              begin="1.2s"
+              repeatCount="indefinite"
+              path="M70 110 H420 C480 110 500 165 560 165 H700 C760 165 780 110 830 110"
+            />
+          </circle>
+
+          {/* Stage labels */}
+          <StageDot cx={70} cy={110} label="Apps" />
+          <StageDot cx={280} cy={110} label="VPN" />
+          <StageDot cx={420} cy={110} label="Local proxy" />
+          <StageDot cx={700} cy={55} label="MITM" accent />
+          <StageDot cx={700} cy={165} label="Tunnel" muted />
+          <StageDot cx={830} cy={110} label="UI" />
+        </svg>
+
+        {/* Mobile: vertical */}
+        <svg
+          className="mx-auto block h-auto w-full max-w-xs sm:hidden"
+          viewBox="0 0 280 520"
+          fill="none"
+          xmlns="http://www.w3.org/2000/svg"
+        >
+          <defs>
+            <linearGradient id="how-line-m" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="#48CAE4" stopOpacity="0.35" />
+              <stop offset="50%" stopColor="#90E0EF" stopOpacity="0.9" />
+              <stop offset="100%" stopColor="#48CAE4" stopOpacity="0.35" />
+            </linearGradient>
+            <filter id="how-glow-m" x="-50%" y="-50%" width="200%" height="200%">
+              <feGaussianBlur stdDeviation="3" result="blur" />
+              <feMerge>
+                <feMergeNode in="blur" />
+                <feMergeNode in="SourceGraphic" />
+              </feMerge>
+            </filter>
+          </defs>
+
+          <path
+            d="M140 40 V160"
+            stroke="url(#how-line-m)"
+            strokeWidth="2.5"
+            strokeLinecap="round"
+          />
+          <path
+            d="M140 160 V240"
+            stroke="url(#how-line-m)"
+            strokeWidth="2.5"
+            strokeLinecap="round"
+          />
+          <path
+            d="M140 240 C140 280 70 300 70 340 V400"
+            stroke="#90E0EF"
+            strokeWidth="2.5"
+            strokeLinecap="round"
+            filter="url(#how-glow-m)"
+          />
+          <path
+            d="M140 240 C140 280 210 300 210 340 V400"
+            stroke="#48CAE4"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeDasharray="6 7"
+            opacity="0.55"
+          />
+          <path
+            d="M70 400 C70 440 140 460 140 480"
+            stroke="#90E0EF"
+            strokeWidth="2.5"
+            strokeLinecap="round"
+          />
+          <path
+            d="M210 400 C210 440 140 460 140 480"
+            stroke="#48CAE4"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeDasharray="6 7"
+            opacity="0.55"
+          />
+
+          <circle r="5" fill="#E0FBFC" filter="url(#how-glow-m)" className="how-packet">
+            <animateMotion
+              dur="5s"
+              repeatCount="indefinite"
+              path="M140 40 V240 C140 280 70 300 70 340 V400 C70 440 140 460 140 480"
+            />
+          </circle>
+          <circle r="3.5" fill="#48CAE4" opacity="0.7" className="how-packet">
+            <animateMotion
+              dur="5.8s"
+              begin="1.4s"
+              repeatCount="indefinite"
+              path="M140 40 V240 C140 280 210 300 210 340 V400 C210 440 140 460 140 480"
+            />
+          </circle>
+
+          <StageDot cx={140} cy={40} label="Apps" />
+          <StageDot cx={140} cy={160} label="VPN" />
+          <StageDot cx={140} cy={240} label="Local proxy" />
+          <StageDot cx={70} cy={400} label="MITM" accent />
+          <StageDot cx={210} cy={400} label="Tunnel" muted />
+          <StageDot cx={140} cy={480} label="UI" />
+        </svg>
       </div>
     </div>
   );
@@ -236,6 +246,38 @@ function StageDot({
   );
 }
 
+function SourcePair({
+  sources,
+  className,
+  prefix,
+}: {
+  sources: SourceLinks;
+  className: string;
+  prefix?: string;
+}) {
+  return (
+    <span className={`inline-flex flex-wrap items-baseline gap-x-2 gap-y-1 ${className}`}>
+      {prefix ? <span>{prefix}</span> : null}
+      <a
+        href={sources.android}
+        className="no-underline transition"
+        target="_blank"
+        rel="noopener noreferrer"
+      >
+        Android →
+      </a>
+      <a
+        href={sources.ios}
+        className="no-underline transition"
+        target="_blank"
+        rel="noopener noreferrer"
+      >
+        iOS →
+      </a>
+    </span>
+  );
+}
+
 export function HowFork() {
   const { fork } = howItWorks;
   return (
@@ -249,15 +291,12 @@ export function HowFork() {
         code={fork.code}
         className="how-code mt-10 overflow-x-auto rounded-2xl bg-ink px-5 py-5 text-left sm:px-6 sm:py-6"
       />
-      <p className="mt-4 text-center">
-        <a
-          href={fork.sourceHref}
-          className="font-mono text-sm text-navy/70 no-underline transition hover:text-navy"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          {fork.sourceLabel} →
-        </a>
+      <p className="mt-4 text-center font-mono text-sm text-navy/70">
+        <SourcePair
+          sources={fork.sources}
+          className="justify-center [&_a]:text-navy/70 [&_a]:hover:text-navy"
+          prefix={`${fork.sourceLabel} ·`}
+        />
       </p>
     </div>
   );
@@ -267,7 +306,7 @@ type ProtocolItem = {
   label: string;
   body: string;
   code: string;
-  sourceHref?: string;
+  sources?: SourceLinks;
 };
 
 export function HowProtocols() {
@@ -368,19 +407,15 @@ function ProtocolLane({
               >
                 {item.code}
               </code>
-              {item.sourceHref ? (
-                <a
-                  href={item.sourceHref}
-                  className={`font-mono text-[0.7rem] tracking-wide no-underline transition sm:text-xs ${
+              {item.sources ? (
+                <SourcePair
+                  sources={item.sources}
+                  className={`font-mono text-[0.7rem] tracking-wide sm:text-xs ${
                     isMitm
-                      ? 'text-cyan/70 hover:text-cyan'
-                      : 'text-navy/40 hover:text-navy/70'
+                      ? '[&_a]:text-cyan/70 [&_a]:hover:text-cyan'
+                      : '[&_a]:text-navy/40 [&_a]:hover:text-navy/70'
                   }`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >
-                  source →
-                </a>
+                />
               ) : null}
             </div>
             <p className="mt-2 max-w-md text-base leading-relaxed text-muted sm:text-lg">

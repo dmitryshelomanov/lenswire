@@ -135,10 +135,16 @@ export const faqs = [
 ] as const;
 
 export const REPO_URL = 'https://github.com/dmitryshelomanov/lenswire';
-export const REPO_BLOB =
+export const REPO_BLOB_ANDROID =
   `${REPO_URL}/blob/main/modules/lenswire-proxy/android/src/main/java/expo/modules/lenswireproxy` as const;
+export const REPO_BLOB_IOS = `${REPO_URL}/blob/main/targets/network-packet-tunnel` as const;
 export const QUICK_START_URL = `${REPO_URL}#readme` as const;
 export const ANDROID_BUILD_URL = `${REPO_URL}#android--google-play` as const;
+
+export type SourceLinks = {
+  android: string;
+  ios: string;
+};
 
 export const getStarted = {
   title: 'Get the app',
@@ -163,14 +169,17 @@ export const howItWorks = {
   fork: {
     intro: 'The fork',
     heading: 'One gate. Two exits.',
-    lead: 'Before any decrypt, the proxy decides canMitm. Decrypt off, missing CA, no SNI, session bypass, or ALPN without HTTP/1.1 → runPassthrough. Otherwise → runMitm.',
+    lead: 'Before any decrypt, the proxy decides canMitm. Decrypt off, missing CA, no SNI, session bypass, or ALPN without HTTP/1.1 → runPassthrough. Otherwise → runMitm (Kotlin) / runMITM (Swift).',
     code: `if (!canMitm) {
   runPassthrough(/* … */, reasonCode = …)  // captureMode: tunnel
   return
 }
 runMitm(/* … */)  // decrypt → inspect → upstream → encrypt back`,
-    sourceLabel: 'View canMitm gate · LocalProxyServer.kt',
-    sourceHref: `${REPO_BLOB}/LocalProxyServer.kt#L283-L335`,
+    sourceLabel: 'View canMitm gate · LocalProxyServer',
+    sources: {
+      android: `${REPO_BLOB_ANDROID}/LocalProxyServer.kt#L283-L335`,
+      ios: `${REPO_BLOB_IOS}/LocalProxyServer.swift#L251-L306`,
+    } satisfies SourceLinks,
   },
   mitm: {
     title: 'We MITM',
@@ -180,7 +189,10 @@ runMitm(/* … */)  // decrypt → inspect → upstream → encrypt back`,
         label: 'HTTP/1.1',
         body: 'When the client offers http/1.1 (often with h2), we force that ALPN, decrypt request and response, and show full payload in the UI. Overrides land here.',
         code: 'decrypted',
-        sourceHref: `${REPO_BLOB}/LocalProxyServer.kt#L426`,
+        sources: {
+          android: `${REPO_BLOB_ANDROID}/LocalProxyServer.kt#L426`,
+          ios: `${REPO_BLOB_IOS}/LocalProxyServer.swift#L479`,
+        } satisfies SourceLinks,
       },
       {
         label: 'WebSocket',
@@ -197,7 +209,10 @@ runMitm(/* … */)  // decrypt → inspect → upstream → encrypt back`,
         label: 'ALPN without HTTP/1.1',
         body: 'ClientHello only offers h2 or h3. We never start MITM — straight tunnel. UI shows HTTP/2 or HTTP/3, not a decrypted call.',
         code: 'alpn_no_http11',
-        sourceHref: `${REPO_BLOB}/LocalProxyServer.kt#L290-L306`,
+        sources: {
+          android: `${REPO_BLOB_ANDROID}/LocalProxyServer.kt#L290-L306`,
+          ios: `${REPO_BLOB_IOS}/LocalProxyServer.swift#L258-L291`,
+        } satisfies SourceLinks,
       },
       {
         label: 'Session bypass',
@@ -213,7 +228,10 @@ runMitm(/* … */)  // decrypt → inspect → upstream → encrypt back`,
         label: 'Decrypt off / no CA / no SNI',
         body: 'MITM impossible up front. Still captured as a tunnel via runPassthrough — not a decrypted call.',
         code: 'passthrough',
-        sourceHref: `${REPO_BLOB}/LocalProxyServer.kt#L759`,
+        sources: {
+          android: `${REPO_BLOB_ANDROID}/LocalProxyServer.kt#L759`,
+          ios: `${REPO_BLOB_IOS}/LocalProxyServer.swift#L387`,
+        } satisfies SourceLinks,
       },
     ],
   },
