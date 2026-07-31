@@ -50,6 +50,8 @@
 
 ### Android / Google Play
 
+Preview APK for sideload: [GitHub Releases](https://github.com/dmitryshelomanov/lenswire/releases).
+
 - [Play Console setup](docs/play-store/PLAY-CONSOLE.md) — AAB upload, keystore, `eas submit`
 - [Store listing copy](docs/play-store/LISTING.md) — name, short/full description, asset paths
 - [Data safety answers](docs/play-store/DATA-SAFETY.md) — Play Console forms & permissions
@@ -58,6 +60,7 @@
 
 ```bash
 npm run build:android:preview:local   # APK for sideload (preferred)
+npm run release:android:github        # attach APK to GitHub Release
 npm run build:android:local           # AAB for Play upload (preferred)
 npm run build:android:preview         # cloud APK (slower)
 npm run build:android                 # cloud AAB (slower)
@@ -120,9 +123,9 @@ npm run ios                              # Simulator (UI only — no Packet Tunn
 npx expo run:ios --device                # physical iPhone (full TUN → hev → SOCKS → MITM)
 ```
 
-| | Simulator | Device |
-|--|--|--|
-| App UI | yes | yes |
+|                    | Simulator             | Device                               |
+| ------------------ | --------------------- | ------------------------------------ |
+| App UI             | yes                   | yes                                  |
 | Full capture (VPN) | **no** (`IPC failed`) | yes (paid team + NE + `appleTeamId`) |
 
 On device after install: **Certificate** → Generate/Install/Trust CA → **Start** → allow VPN → Safari. Details: [`modules/lenswire-proxy/ios/README.md`](modules/lenswire-proxy/ios/README.md).
@@ -269,18 +272,19 @@ Key components:
 
 ## Scripts
 
-| Script                                      | Purpose                                             |
-| ------------------------------------------- | --------------------------------------------------- |
-| `npm run ios` / `android`                   | Build & run                                         |
+| Script                                      | Purpose                                                   |
+| ------------------------------------------- | --------------------------------------------------------- |
+| `npm run ios` / `android`                   | Build & run                                               |
 | `npm run prebuild:ios` / `prebuild:android` | Regenerate native projects (iOS also runs `link:hev-ios`) |
-| `npm run link:hev-ios`                      | Link HevSocks5Tunnel into Packet Tunnel (after prebuild) |
-| `npm run build:android:preview:local`       | Local EAS preview APK                               |
-| `npm run build:android:local`               | Local EAS production AAB                            |
-| `npm run screenshots:store`                 | Colorful marketing frames + website JPG screenshots |
-| `npm run screenshots:play`                  | Play feature graphic + Android framed screenshots   |
-| `npm run website:dev` / `website:deploy`    | Landing page (GitHub Pages)                         |
-| `npm run sim:trust-ca`                      | Trust app-generated CA in booted iOS Simulator      |
-| `npm run android:trust-ca`                  | Install Lenswire CA into System store (rooted AVD)  |
+| `npm run link:hev-ios`                      | Link HevSocks5Tunnel into Packet Tunnel (after prebuild)  |
+| `npm run build:android:preview:local`       | Local EAS preview APK                                     |
+| `npm run release:android:github`            | Upload preview APK to GitHub Release                      |
+| `npm run build:android:local`               | Local EAS production AAB                                  |
+| `npm run screenshots:store`                 | Colorful marketing frames + website JPG screenshots       |
+| `npm run screenshots:play`                  | Play feature graphic + Android framed screenshots         |
+| `npm run website:dev` / `website:deploy`    | Landing page (GitHub Pages)                               |
+| `npm run sim:trust-ca`                      | Trust app-generated CA in booted iOS Simulator            |
+| `npm run android:trust-ca`                  | Install Lenswire CA into System store (rooted AVD)        |
 
 ## About
 
