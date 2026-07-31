@@ -1,6 +1,6 @@
 import { useRouter } from 'expo-router';
 import { ArrowLeft, Pencil, Plus } from 'lucide-react-native';
-import { FlatList, Pressable, View } from 'react-native';
+import { Alert, FlatList, Pressable, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import type { OverrideRule } from '@/entities/traffic/types';
@@ -46,7 +46,16 @@ export default function OverridesScreen() {
               onEdit={() =>
                 router.push({ pathname: '/override/edit', params: { ruleId: item.id } })
               }
-              onDelete={() => removeRule(item.id)}
+              onDelete={() => {
+                Alert.alert('Delete override?', `Remove rule for ${item.host}${item.path}?`, [
+                  { text: 'Cancel', style: 'cancel' },
+                  {
+                    text: 'Delete',
+                    style: 'destructive',
+                    onPress: () => removeRule(item.id),
+                  },
+                ]);
+              }}
             />
           )}
         />

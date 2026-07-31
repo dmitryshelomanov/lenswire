@@ -209,8 +209,17 @@ export default function OverrideEditScreen() {
   };
 
   const onDelete = () => {
-    removeRule(draft.id);
-    router.replace('/overrides');
+    Alert.alert('Delete override?', 'This cannot be undone.', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Delete',
+        style: 'destructive',
+        onPress: () => {
+          removeRule(draft.id);
+          router.replace('/overrides');
+        },
+      },
+    ]);
   };
 
   return (
