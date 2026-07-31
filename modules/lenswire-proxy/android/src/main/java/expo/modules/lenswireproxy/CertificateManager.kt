@@ -17,7 +17,7 @@ object CertificateManager {
     val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
     val persistedFingerprint = prefs.getString(KEY_FINGERPRINT, null)
     val generatedAt = prefs.getLong(KEY_GENERATED_AT, 0L)
-    val ready = caCertDerFile(context).exists() && caKeyPkcs8File(context).exists()
+    val ready = caCertDerFile(context).exists() && SecureCaKeyStore.hasKey(context)
     val fingerprint = if (ready) {
       persistedFingerprint ?: runCatching {
         X509Util.sha256Fingerprint(caCertDerFile(context).readBytes())
@@ -38,7 +38,7 @@ object CertificateManager {
     dir.mkdirs()
     val ca = X509Util.generateCa()
     caCertDerFile(context).writeBytes(ca.certDer)
-    caKeyPkcs8File(context).writeBytes(ca.keyPkcs8)
+    SecureCaKeyStore.storePkcs8(context, ca.keyPkcs8)
     pemFile(context).writeText(ca.certPem)
     cerFile(context).writeBytes(ca.certDer)
 
@@ -53,7 +53,7 @@ object CertificateManager {
   }
 
   fun pemPath(context: Context): String? {
-    if (!caCertDerFile(context).exists() || !caKeyPkcs8File(context).exists()) return null
+    if (!caCertDerFile(context).exists() || !SecureCaKeyStore.hasKey(context)) return null
     val file = pemFile(context)
     if (!file.exists()) {
       file.parentFile?.mkdirs()
@@ -65,7 +65,7 @@ object CertificateManager {
 
   /** DER `.cer` for manual Settings install / share. */
   fun cerPath(context: Context): String? {
-    if (!caCertDerFile(context).exists() || !caKeyPkcs8File(context).exists()) return null
+    if (!caCertDerFile(context).exists() || !SecureCaKeyStore.hasKey(context)) return null
     val cer = cerFile(context)
     if (!cer.exists()) {
       cer.parentFile?.mkdirs()
@@ -77,7 +77,7 @@ object CertificateManager {
   fun exportPath(context: Context): String? = cerPath(context)
 
   fun installIntent(context: Context): Intent? {
-    if (!caCertDerFile(context).exists() || !caKeyPkcs8File(context).exists()) return null
+    if (!caCertDerFile(context).exists() || !SecureCaKeyStore.hasKey(context)) return null
     val cer = cerFile(context)
     if (!cer.exists()) {
       cer.parentFile?.mkdirs()
@@ -92,10 +92,10 @@ object CertificateManager {
 
   fun loadCa(context: Context): X509Util.CaMaterial? {
     val certFile = caCertDerFile(context)
-    val keyFile = caKeyPkcs8File(context)
-    if (!certFile.exists() || !keyFile.exists()) return null
+    if (!certFile.exists()) return null
+    val keyBytes = SecureCaKeyStore.loadPkcs8(context) ?: return null
     return runCatching {
-      X509Util.loadCa(certFile.readBytes(), keyFile.readBytes())
+      X509Util.loadCa(certFile.readBytes(), keyBytes)
     }.getOrNull()
   }
 
@@ -119,5 +119,4 @@ object CertificateManager {
   private fun pemFile(context: Context) = File(certsDir(context), "lenswire-ca.pem")
   private fun cerFile(context: Context) = File(certsDir(context), "lenswire-ca.cer")
   private fun caCertDerFile(context: Context) = File(certsDir(context), "lenswire-ca.der")
-  private fun caKeyPkcs8File(context: Context) = File(certsDir(context), "lenswire-ca.key")
 }

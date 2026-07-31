@@ -15,17 +15,11 @@ final class CertificateAuthority {
 
   func isReady() -> Bool {
     FileManager.default.fileExists(atPath: LenswireShared.caCertURL.path)
-      && FileManager.default.fileExists(atPath: LenswireShared.caKeyURL.path)
+      && (Self.keychainHasCaKey() || FileManager.default.fileExists(atPath: LenswireShared.caKeyURL.path))
   }
 
   func load() throws -> Material {
-    let certDER = try Data(contentsOf: LenswireShared.caCertURL)
-    let keyData = try Data(contentsOf: LenswireShared.caKeyURL)
-    let privateKey = try X509.importPrivateKey(keyData)
-    let fingerprint =
-      LenswireShared.sharedDefaults.string(forKey: LenswireShared.caFingerprintKey)
-      ?? X509.sha256Fingerprint(der: certDER)
-    return Material(certificateDER: certDER, privateKey: privateKey, fingerprint: fingerprint)
+    try loadUnlocked()
   }
 
   @discardableResult
@@ -42,7 +36,13 @@ final class CertificateAuthority {
     let pem = X509.pemCertificate(der: certDER)
 
     try certDER.write(to: LenswireShared.caCertURL, options: .atomic)
-    try keyData.write(to: LenswireShared.caKeyURL, options: .atomic)
+    do {
+      try Self.storeCaKeyInKeychain(keyData)
+      try? FileManager.default.removeItem(at: LenswireShared.caKeyURL)
+    } catch {
+      // App Group Keychain requires keychain-access-groups; keep shared-file fallback.
+      try keyData.write(to: LenswireShared.caKeyURL, options: .atomic)
+    }
     try pem.write(to: LenswireShared.caPemURL, atomically: true, encoding: .utf8)
     try? pem.write(to: LenswireShared.documentsCaPemURL, atomically: true, encoding: .utf8)
 
@@ -187,12 +187,64 @@ final class CertificateAuthority {
 
   private func loadUnlocked() throws -> Material {
     let certDER = try Data(contentsOf: LenswireShared.caCertURL)
-    let keyData = try Data(contentsOf: LenswireShared.caKeyURL)
+    let keyData = try Self.loadCaKeyData()
     let privateKey = try X509.importPrivateKey(keyData)
     let fingerprint =
       LenswireShared.sharedDefaults.string(forKey: LenswireShared.caFingerprintKey)
       ?? X509.sha256Fingerprint(der: certDER)
     return Material(certificateDER: certDER, privateKey: privateKey, fingerprint: fingerprint)
+  }
+
+  private static let caKeychainService = "com.lenswire.ca.private-key"
+  private static let caKeychainAccount = "lenswire-ca"
+
+  private static func keychainQuery() -> [String: Any] {
+    var query: [String: Any] = [
+      kSecClass as String: kSecClassGenericPassword,
+      kSecAttrService as String: caKeychainService,
+      kSecAttrAccount as String: caKeychainAccount,
+    ]
+    query[kSecAttrAccessGroup as String] = LenswireShared.appGroupId
+    return query
+  }
+
+  private static func keychainHasCaKey() -> Bool {
+    var query = keychainQuery()
+    query[kSecReturnData as String] = false
+    query[kSecMatchLimit as String] = kSecMatchLimitOne
+    return SecItemCopyMatching(query as CFDictionary, nil) == errSecSuccess
+  }
+
+  private static func storeCaKeyInKeychain(_ data: Data) throws {
+    var query = keychainQuery()
+    SecItemDelete(query as CFDictionary)
+    query[kSecValueData as String] = data
+    query[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+    let status = SecItemAdd(query as CFDictionary, nil)
+    guard status == errSecSuccess else {
+      throw NSError(
+        domain: "LenswireCA",
+        code: Int(status),
+        userInfo: [NSLocalizedDescriptionKey: "Failed to store CA key in Keychain (\(status))"]
+      )
+    }
+  }
+
+  private static func loadCaKeyData() throws -> Data {
+    var query = keychainQuery()
+    query[kSecReturnData as String] = true
+    query[kSecMatchLimit as String] = kSecMatchLimitOne
+    var item: CFTypeRef?
+    let status = SecItemCopyMatching(query as CFDictionary, &item)
+    if status == errSecSuccess, let data = item as? Data {
+      return data
+    }
+
+    // Migrate legacy plaintext key file into Keychain.
+    let legacy = try Data(contentsOf: LenswireShared.caKeyURL)
+    try storeCaKeyInKeychain(legacy)
+    try? FileManager.default.removeItem(at: LenswireShared.caKeyURL)
+    return legacy
   }
 
   private static func makeIdentity(

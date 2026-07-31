@@ -22,6 +22,18 @@ pairs = [
         "modules/lenswire-proxy/ios/TLSBridge.swift",
         "targets/network-packet-tunnel/TLSBridge.swift",
     ),
+    (
+        "modules/lenswire-proxy/ios/CertificateAuthority.swift",
+        "targets/network-packet-tunnel/CertificateAuthority.swift",
+    ),
+    (
+        "modules/lenswire-proxy/ios/TlsSni.swift",
+        "targets/network-packet-tunnel/TlsSni.swift",
+    ),
+    (
+        "modules/lenswire-proxy/ios/X509.swift",
+        "targets/network-packet-tunnel/X509.swift",
+    ),
 ]
 
 
