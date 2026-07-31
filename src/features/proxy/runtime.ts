@@ -325,8 +325,7 @@ export function updateSettings(patch: Partial<ProxySettings>): void {
   const prev = settingsSlice.getSnapshot();
   const next: ProxySettings = {
     ...prev,
-    httpsDecrypt:
-      typeof nextHttpsDecrypt === 'boolean' ? nextHttpsDecrypt : prev.httpsDecrypt,
+    httpsDecrypt: typeof nextHttpsDecrypt === 'boolean' ? nextHttpsDecrypt : prev.httpsDecrypt,
     // Host/port are fixed by the native module.
     host: '127.0.0.1',
     port: prev.port,

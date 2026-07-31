@@ -1,5 +1,5 @@
-import type { TrafficEntry } from './types';
 import { contentTypeMime, headerValue } from './headers';
+import type { TrafficEntry } from './types';
 
 export type GrpcVariant = 'grpc-web' | 'grpc';
 

@@ -80,9 +80,7 @@ export default function HomeScreen() {
     hasTraffic: entries.length > 0,
     status,
     hasActiveFilters:
-      (Boolean(normalizedDomainQuery) ||
-        clientNameFilter !== 'ALL' ||
-        captureFilter !== 'ALL') &&
+      (Boolean(normalizedDomainQuery) || clientNameFilter !== 'ALL' || captureFilter !== 'ALL') &&
       groups.length > 0,
   });
 
