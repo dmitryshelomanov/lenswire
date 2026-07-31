@@ -17,54 +17,64 @@ import {
 } from '@/features/proxy/ui/request-detail';
 import { Tabs } from '@/shared/ui/tabs';
 
+function summaryFingerprint(entry: TrafficEntry): string {
+  return [
+    entry.status,
+    entry.timing?.totalMs,
+    entry.responseBody?.size,
+    entry.requestBody?.size,
+    entry.httpPayloadAvailable,
+  ].join('|');
+}
+
 export default function RequestDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { entries, getEntry, loadFullEntry } = useProxyEntries();
   const [entry, setEntry] = React.useState<TrafficEntry | null>(null);
   const [loading, setLoading] = React.useState(Boolean(id));
   const [tab, setTab] = React.useState<DetailTab>('overview');
+  const [activeId, setActiveId] = React.useState(id);
+  const [refreshKey, setRefreshKey] = React.useState('');
+
+  // Adjust local state when the route id changes (React render-time pattern).
+  if (id !== activeId) {
+    setActiveId(id);
+    setEntry(null);
+    setLoading(Boolean(id));
+    setRefreshKey('');
+  }
+
+  const listEntry = id ? getEntry(id) : null;
+  const listFingerprint = listEntry ? summaryFingerprint(listEntry) : '';
 
   React.useEffect(() => {
+    if (!id) return;
     let cancelled = false;
-    if (!id) {
-      setEntry(null);
-      setLoading(false);
-      return;
-    }
-    setLoading(true);
     void loadFullEntry(id).then((full) => {
       if (cancelled) return;
-      setEntry(full ?? getEntry(id) ?? null);
+      const next = full ?? getEntry(id) ?? null;
+      setEntry(next);
       setLoading(false);
+      setRefreshKey(next ? summaryFingerprint(next) : '');
     });
     return () => {
       cancelled = true;
     };
   }, [id, getEntry, loadFullEntry]);
 
-  // Refresh detail when capture list updates the same id (late body/timing).
+  // Reload full entry when the capture list summary for this id changes.
   React.useEffect(() => {
-    if (!id || loading) return;
-    const fromList = getEntry(id);
-    if (!fromList) return;
-    setEntry((prev) => {
-      if (!prev) return fromList;
-      if (
-        prev.status === fromList.status &&
-        prev.timing?.totalMs === fromList.timing?.totalMs &&
-        prev.responseBody?.size === fromList.responseBody?.size &&
-        prev.requestBody?.size === fromList.requestBody?.size &&
-        prev.httpPayloadAvailable === fromList.httpPayloadAvailable
-      ) {
-        return prev;
-      }
-      // Reload full entry when summary fields change.
-      void loadFullEntry(id).then((full) => {
-        if (full) setEntry(full);
-      });
-      return prev;
+    if (!id || loading || !listFingerprint || listFingerprint === refreshKey) return;
+    let cancelled = false;
+    void loadFullEntry(id).then((full) => {
+      if (cancelled || !full) return;
+      setEntry(full);
+      setRefreshKey(summaryFingerprint(full));
     });
-  }, [id, entries, getEntry, loadFullEntry, loading]);
+    return () => {
+      cancelled = true;
+    };
+  }, [id, entries, listFingerprint, refreshKey, loadFullEntry, loading]);
 
   if (loading) {
     return (
