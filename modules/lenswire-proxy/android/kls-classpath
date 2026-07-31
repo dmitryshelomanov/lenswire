@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+# Stable classpath for fwcd.kotlin (avoids flaky Gradle kotlinLSPProjectDeps +
+# build/tmp/*.kotlin_module FileNotFoundException loops).
+set -euo pipefail
+cd "$(dirname "$0")"
+
+SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
+if [[ -z "$SDK" && -f local.properties ]]; then
+  SDK="$(sed -n 's/^sdk.dir=//p' local.properties | sed 's|\\|/|g' | tr -d '\r')"
+fi
+
+ANDROID_JAR=""
+if [[ -n "$SDK" ]]; then
+  for platform in android-36 android-36.1 android-35 android-34; do
+    if [[ -f "$SDK/platforms/$platform/android.jar" ]]; then
+      ANDROID_JAR="$SDK/platforms/$platform/android.jar"
+      break
+    fi
+  done
+fi
+
+# Prefer Gradle-resolved jars (stdlib + deps), fall back to cache lookup.
+CP="$(./gradlew -q printKlsClasspath 2>/dev/null || true)"
+if [[ -z "$CP" ]]; then
+  STDLIB="$(find "${GRADLE_USER_HOME:-$HOME/.gradle}/caches/modules-2/files-2.1/org.jetbrains.kotlin/kotlin-stdlib/2.1.20" \
+    -name 'kotlin-stdlib-2.1.20.jar' 2>/dev/null | head -1 || true)"
+  CP="$STDLIB"
+fi
+
+if [[ -n "$ANDROID_JAR" ]]; then
+  if [[ -n "$CP" ]]; then
+    CP="${CP}${CP:+:}${ANDROID_JAR}"
+  else
+    CP="$ANDROID_JAR"
+  fi
+fi
+
+echo "$CP"

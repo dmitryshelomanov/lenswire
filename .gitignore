@@ -45,6 +45,12 @@ lenswire-ca.cer
 /ios
 /android
 
+# fwcd.kotlin walks the workspace using gitignore globs. `/android` alone is not
+# enough for its matcher, so it also picks up Expo `:app` and thrashes the
+# classpath (false kotlin.Function1 / missing-stdlib diagnostics). This path
+# exists only under the generated Expo tree, not under modules/*/android.
+android/app
+
 # Native module / local Android build outputs
 **/android/build/
 **/android/.cxx/

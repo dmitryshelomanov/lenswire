@@ -17,6 +17,14 @@ npm run android
 
 Emulator Chrome HTTPS needs System CA: `npm run android:trust-ca` (rooted AVD). See root README.
 
+### IDE / Cursor highlighting
+
+This directory is a dual-mode Gradle root so Cursor’s Kotlin language server can resolve `kotlin-stdlib` (avoids false `kotlin.Function1` / missing stdlib errors). Root [`.gitignore`](../../../.gitignore) also skips generated `android/app` so fwcd.kotlin does not merge the Expo `:app` classpath (that was causing errors to flicker back after a clean/rebuild).
+
+After pulling: **Developer: Reload Window**, then reopen a `.kt` file. Keep `JAVA_HOME` set (see [`.vscode/settings.json`](../../../.vscode/settings.json)).
+
+For full Expo API completion (`LenswireProxyModule`, etc.), open the app [`android/`](../../../android/) project in Android Studio — autolinking provides `expo-modules-core`.
+
 ## Architecture
 
 ```

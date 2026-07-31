@@ -1,0 +1,12 @@
+{
+  "kotlin.java.home": "${env:JAVA_HOME}",
+  "kotlin.indexing.enabled": false,
+  "kotlin.languageServer.enabled": true,
+  "files.watcherExclude": {
+    "**/android/build/**": true,
+    "**/android/.gradle/**": true,
+    "android/app/**": true,
+    "android/.gradle/**": true,
+    "android/build/**": true
+  }
+}

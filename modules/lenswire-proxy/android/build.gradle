@@ -1,6 +1,15 @@
+// Dual-mode:
+// - Standalone (project == rootProject): Cursor/fwcd.kotlin + local ./gradlew for IDE classpath
+// - Expo autolink (included from android/): expo-module-gradle-plugin as usual
 plugins {
   id 'com.android.library'
-  id 'expo-module-gradle-plugin'
+  id 'org.jetbrains.kotlin.android'
+}
+
+def standalone = (project == rootProject)
+
+if (!standalone) {
+  apply plugin: 'expo-module-gradle-plugin'
 }
 
 group = 'expo.modules.lenswireproxy'
@@ -8,16 +17,51 @@ version = '0.1.0'
 
 android {
   namespace "expo.modules.lenswireproxy"
-  defaultConfig {
-    versionCode 1
-    versionName "0.1.0"
+  if (standalone) {
+    compileSdk 36
+    defaultConfig {
+      minSdk 24
+      targetSdk 36
+      versionCode 1
+      versionName "0.1.0"
+    }
+    compileOptions {
+      sourceCompatibility JavaVersion.VERSION_17
+      targetCompatibility JavaVersion.VERSION_17
+    }
+    kotlinOptions {
+      jvmTarget = '17'
+    }
+  } else {
+    defaultConfig {
+      versionCode 1
+      versionName "0.1.0"
+    }
   }
   lintOptions {
     abortOnError false
   }
 }
 
+if (standalone) {
+  // Expo APIs only resolve when included from android/; keep IDE classpath for the rest.
+  tasks.withType(org.jetbrains.kotlin.gradle.tasks.KotlinCompile).configureEach {
+    exclude('**/LenswireProxyModule.kt')
+  }
+
+  // Used by ./kls-classpath for fwcd.kotlin (stable JAR list, no build/tmp outputs).
+  tasks.register('printKlsClasspath') {
+    doLast {
+      def jars = configurations.debugCompileClasspath.resolve().findAll { it.name.endsWith('.jar') }
+      println jars.collect { it.absolutePath }.join(File.pathSeparator)
+    }
+  }
+}
+
 dependencies {
+  if (standalone) {
+    implementation "org.jetbrains.kotlin:kotlin-stdlib:2.1.20"
+  }
   implementation "androidx.core:core-ktx:1.15.0"
   implementation "com.ooimi.library:tun2socks:1.0.4"
   implementation "org.bouncycastle:bcprov-jdk18on:1.78.1"
