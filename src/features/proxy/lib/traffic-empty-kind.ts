@@ -17,7 +17,7 @@ export function resolveTrafficEmptyKind({
   hasActiveFilters,
 }: ResolveTrafficEmptyKindArgs): TrafficEmptyKind | null {
   if (visibleCount > 0) return null;
-  if (status === 'stopped' && !hasTraffic) return 'stopped';
+  if ((status === 'stopped' || status === 'error') && !hasTraffic) return 'stopped';
   if (hasActiveFilters) return 'filtered';
   return 'empty';
 }

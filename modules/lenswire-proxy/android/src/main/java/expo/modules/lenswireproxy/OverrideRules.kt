@@ -8,6 +8,12 @@ object OverrideRules {
   private const val PREFS = "lenswire_settings"
   private const val KEY = "overrides"
 
+  @Volatile
+  private var cachedJson: String? = null
+
+  @Volatile
+  private var cachedRules: List<Rule>? = null
+
   data class Rule(
     val id: String,
     val enabled: Boolean,
@@ -45,16 +51,23 @@ object OverrideRules {
   }
 
   fun setJson(context: Context, json: String) {
+    val normalized = json.ifBlank { "[]" }
     context
       .getSharedPreferences(PREFS, Context.MODE_PRIVATE)
       .edit()
-      .putString(KEY, json.ifBlank { "[]" })
+      .putString(KEY, normalized)
       .apply()
+    cachedJson = normalized
+    cachedRules = null
   }
 
   fun load(context: Context): List<Rule> {
-    return try {
-      val arr = JSONArray(getJson(context))
+    val json = getJson(context)
+    cachedRules?.let { cached ->
+      if (cachedJson == json) return cached
+    }
+    val loaded = try {
+      val arr = JSONArray(json)
       val out = ArrayList<Rule>(arr.length())
       for (i in 0 until arr.length()) {
         val obj = arr.optJSONObject(i) ?: continue
@@ -80,6 +93,9 @@ object OverrideRules {
     } catch (_: Exception) {
       emptyList()
     }
+    cachedJson = json
+    cachedRules = loaded
+    return loaded
   }
 
   fun find(

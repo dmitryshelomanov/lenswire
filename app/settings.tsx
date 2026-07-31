@@ -11,10 +11,10 @@ import { useProxySettings, useProxyStatus } from '@/features/proxy/store';
 import { ProbeTypeModal } from '@/features/proxy/ui/traffic-toolbar/probe-type-modal';
 import { type ThemePreference, useThemeStore } from '@/features/theme/store';
 import { getDiagnostics } from '@/shared/api/native-proxy';
+import { getAppInfo } from '@/shared/lib/app-info';
 import { Badge } from '@/shared/ui/badge';
 import { Button } from '@/shared/ui/button';
 import { Icon } from '@/shared/ui/icon';
-import { Input } from '@/shared/ui/input';
 import { ScreenHeader } from '@/shared/ui/screen-header';
 import { SwitchRow } from '@/shared/ui/switch-row';
 import { Text } from '@/shared/ui/text';
@@ -36,6 +36,7 @@ export default function SettingsScreen() {
   const listening = status === 'listening';
   const enabledOverrides = rules.filter((rule) => rule.enabled).length;
   const diagnostics = safeDiagnostics();
+  const appInfo = getAppInfo();
 
   return (
     <SafeAreaView className="flex-1 bg-background">
@@ -46,13 +47,6 @@ export default function SettingsScreen() {
       />
 
       <ScrollView className="flex-1" contentContainerClassName="gap-6 px-4 py-6 sm:px-6">
-        {listening ? (
-          <Text variant="muted">
-            Stop the proxy before changing listen host or port. HTTPS decryption can be toggled any
-            time (UI only).
-          </Text>
-        ) : null}
-
         <View
           className={`rounded-lg border p-4 ${
             enabledOverrides > 0
@@ -154,29 +148,16 @@ export default function SettingsScreen() {
           }}
         />
 
-        <Field label="Listen host">
-          <Input
-            value={settings.host}
-            editable={!listening}
-            autoCapitalize="none"
-            autoCorrect={false}
-            onChangeText={(host) => updateSettings({ host })}
-            placeholder="0.0.0.0"
-          />
-        </Field>
-
-        <Field label="Port">
-          <Input
-            value={String(settings.port)}
-            editable={!listening}
-            keyboardType="number-pad"
-            onChangeText={(raw) => {
-              const port = Number.parseInt(raw.replace(/[^0-9]/g, ''), 10);
-              if (!Number.isFinite(port)) return;
-              updateSettings({ port: Math.min(65535, Math.max(1, port)) });
-            }}
-            placeholder="9090"
-          />
+        <Field label="Local proxy">
+          <View className="border-border bg-muted/40 rounded-md border px-3 py-3">
+            <Text className="font-mono text-sm">
+              {settings.host}:{settings.port}
+            </Text>
+          </View>
+          <Text variant="muted" className="mt-2">
+            Listen address is fixed by the on-device VPN proxy. Start capture to inspect traffic
+            through this local endpoint.
+          </Text>
         </Field>
 
         <Field label="HTTPS decryption">
@@ -260,6 +241,14 @@ export default function SettingsScreen() {
               ? 'Capability matrix: HTTP capture yes; Chrome HTTPS needs System CA (`npm run android:trust-ca` on this emulator); pinned apps need external Frida/LSPosed unpin and may stay tunnel-only. SOCKS is TCP-only (`quicForcedToTcp`) so Chrome QUIC falls back to TCP HTTPS.'
               : 'Capability matrix: HTTP capture yes; Chrome ignores User CAs on Android 7+; pinned apps need external Frida/LSPosed unpin and may stay tunnel-only. SOCKS is TCP-only (`quicForcedToTcp`) so Chrome QUIC falls back to TCP HTTPS.'}
           </Text>
+        </Field>
+
+        <Field label="About">
+          <Text className="text-base font-semibold">{appInfo.name}</Text>
+          <Text variant="muted">Version {appInfo.version}</Text>
+          <Text variant="muted">Build {appInfo.build ?? '—'}</Text>
+          <Text variant="muted">Author {appInfo.author}</Text>
+          <Text variant="muted">License {appInfo.license}</Text>
         </Field>
       </ScrollView>
     </SafeAreaView>

@@ -59,10 +59,15 @@ internal object HttpIo {
     val buffer = ByteArray(4096)
     var headerEnd = if (prefix.isNotEmpty()) indexOfHeaderEnd(prefix) else -1
     var contentLength = 0
+    var chunked = false
     if (headerEnd >= 0) {
       val headerText = String(prefix, 0, headerEnd, Charsets.ISO_8859_1)
       contentLength = parseContentLength(headerText)
-      if (messageComplete(out.toByteArray(), headerEnd, contentLength)) {
+      chunked = isChunkedHeader(headerText)
+      if (!chunked && (out.size() >= headerEnd + 4 + contentLength || contentLength == 0)) {
+        return out.toByteArray()
+      }
+      if (chunked && messageComplete(out.toByteArray(), headerEnd, contentLength)) {
         return out.toByteArray()
       }
     }
@@ -70,15 +75,23 @@ internal object HttpIo {
       val read = input.read(buffer)
       if (read <= 0) break
       out.write(buffer, 0, read)
-      val bytes = out.toByteArray()
       if (headerEnd < 0) {
+        // Only materialize bytes until headers are located.
+        val bytes = out.toByteArray()
         headerEnd = indexOfHeaderEnd(bytes)
         if (headerEnd >= 0) {
           val headerText = String(bytes, 0, headerEnd, Charsets.ISO_8859_1)
           contentLength = parseContentLength(headerText)
+          chunked = isChunkedHeader(headerText)
+        } else {
+          continue
         }
       }
-      if (headerEnd >= 0 && messageComplete(bytes, headerEnd, contentLength)) break
+      if (!chunked) {
+        if (out.size() >= headerEnd + 4 + contentLength || contentLength == 0) break
+      } else if (messageComplete(out.toByteArray(), headerEnd, contentLength)) {
+        break
+      }
     }
     return out.toByteArray()
   }

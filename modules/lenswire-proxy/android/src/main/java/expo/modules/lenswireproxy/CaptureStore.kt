@@ -17,8 +17,18 @@ object CaptureStore {
 
   const val PROXY_PORT = 9090
 
+  @Volatile
+  private var recordingPaused: Boolean = false
+
+  fun setRecordingPaused(paused: Boolean) {
+    recordingPaused = paused
+  }
+
+  fun isRecordingPaused(): Boolean = recordingPaused
+
   @Synchronized
   fun append(context: Context, entry: Map<String, Any?>) {
+    if (recordingPaused) return
     migrateAwayFromPrefs(context)
     val dir = capturesDir(context)
     val id = entry["id"]?.toString()?.takeIf { it.isNotBlank() }

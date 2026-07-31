@@ -1,4 +1,4 @@
-import { Alert, Platform } from 'react-native';
+import { Alert, PermissionsAndroid, Platform } from 'react-native';
 
 import type {
   CertificateInfo,
@@ -19,17 +19,22 @@ import {
   getHttpsDecrypt,
   getProxyPort,
   getProxyStatus,
+  getRecordingPaused,
   sendProbe as apiSendProbe,
   setHttpsDecrypt,
+  setRecordingPaused,
   startCapture,
   stopCapture,
 } from '@/shared/api/native-proxy';
 import { loadJson, saveJson } from '@/shared/lib/safe-async-storage';
 
+import { mergeCaptures } from './lib/merge-captures';
 import { createRuntimePolling } from './runtime-polling';
 import { createRuntimeSlice } from './runtime-store';
 
 const PINNED_HOSTS_KEY = 'lenswire.pinnedHosts';
+const FILTERS_KEY = 'lenswire.trafficFilters';
+const SETTINGS_KEY = 'lenswire.proxySettings';
 
 const DEFAULT_SETTINGS: ProxySettings = {
   host: '127.0.0.1',
@@ -114,6 +119,28 @@ function parsePinnedHosts(value: string | null): string[] | null {
   }
 }
 
+function parseFilters(value: string | null): TrafficFilters | null {
+  if (!value) return null;
+  try {
+    const parsed = JSON.parse(value) as Partial<TrafficFilters>;
+    if (!parsed || typeof parsed !== 'object') return null;
+    return { ...DEFAULT_FILTERS, ...parsed };
+  } catch {
+    return null;
+  }
+}
+
+function parseSettings(value: string | null): Partial<ProxySettings> | null {
+  if (!value) return null;
+  try {
+    const parsed = JSON.parse(value) as Partial<ProxySettings>;
+    if (!parsed || typeof parsed !== 'object') return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
 function patchControl(patch: Partial<ControlSlice>): void {
   const prev = controlSlice.getSnapshot();
   const next = { ...prev, ...patch };
@@ -125,7 +152,7 @@ function patchControl(patch: Partial<ControlSlice>): void {
     return;
   }
   controlSlice.set(next);
-  polling.sync(next.status === 'listening');
+  polling.sync(next.status === 'listening' || next.status === 'connecting');
 }
 
 async function refreshCaptures(force = false): Promise<void> {
@@ -145,7 +172,8 @@ async function refreshCaptures(force = false): Promise<void> {
     }
     const next = await getCaptures();
     lastCapturesRevision = revision;
-    entriesSlice.set(next);
+    const prev = entriesSlice.getSnapshot();
+    entriesSlice.set(mergeCaptures(prev, next));
     const nextStatus = getProxyStatus();
     if (nextStatus !== controlSlice.getSnapshot().status) {
       patchControl({ status: nextStatus });
@@ -157,7 +185,7 @@ async function refreshCaptures(force = false): Promise<void> {
 
 const polling = createRuntimePolling(
   refreshCaptures,
-  () => controlSlice.getSnapshot().recording,
+  () => controlSlice.getSnapshot().status === 'listening',
   1200,
 );
 
@@ -171,32 +199,76 @@ function loadPins(): void {
     });
 }
 
+function loadPersistedUiState(): void {
+  loadJson(FILTERS_KEY, parseFilters)
+    .then((filters) => {
+      if (filters) filtersSlice.set(filters);
+    })
+    .catch(() => {});
+  loadJson(SETTINGS_KEY, parseSettings)
+    .then((stored) => {
+      if (!stored) return;
+      const prev = settingsSlice.getSnapshot();
+      settingsSlice.set({
+        ...prev,
+        httpsDecrypt:
+          typeof stored.httpsDecrypt === 'boolean' ? stored.httpsDecrypt : prev.httpsDecrypt,
+      });
+    })
+    .catch(() => {});
+}
+
 export function ensureProxyRuntime(): void {
   if (bootstrapped) return;
   bootstrapped = true;
-  void refreshCaptures(true);
-  certificateSlice.set({
-    certificate: getCertificateInfo(),
-    busy: false,
-  });
   tryNativeCall(() => {
     const prev = settingsSlice.getSnapshot();
     settingsSlice.set({
       ...prev,
+      host: '127.0.0.1',
       port: getProxyPort(),
       httpsDecrypt: getHttpsDecrypt(),
     });
+    certificateSlice.set({
+      certificate: getCertificateInfo(),
+      busy: false,
+    });
+    const paused = getRecordingPaused();
+    patchControl({
+      status: getProxyStatus(),
+      recording: !paused,
+    });
   });
+  void refreshCaptures(true);
   loadPins();
-  polling.sync(controlSlice.getSnapshot().status === 'listening');
+  loadPersistedUiState();
+  polling.sync(
+    controlSlice.getSnapshot().status === 'listening' ||
+      controlSlice.getSnapshot().status === 'connecting',
+  );
+}
+
+async function ensureAndroidNotificationPermission(): Promise<void> {
+  if (Platform.OS !== 'android') return;
+  if (typeof Platform.Version === 'number' && Platform.Version < 33) return;
+  try {
+    await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS);
+  } catch {
+    // Optional; VPN can still start without notifications.
+  }
 }
 
 export async function start(): Promise<void> {
+  if (controlSlice.getSnapshot().status === 'connecting') return;
+  patchControl({ status: 'connecting' });
   try {
+    await ensureAndroidNotificationPermission();
     const next = await startCapture(settingsSlice.getSnapshot());
+    tryNativeCall(() => setRecordingPaused(false));
     patchControl({ status: next, recording: true });
     void refreshCaptures(true);
   } catch (error) {
+    patchControl({ status: getProxyStatus() === 'error' ? 'error' : 'stopped' });
     const hint =
       Platform.OS === 'android'
         ? 'Allow VPN in the system dialog, then tap Start again.'
@@ -208,7 +280,8 @@ export async function start(): Promise<void> {
 export async function stop(): Promise<void> {
   await runAction('Could not stop capture', async () => {
     const next = await stopCapture();
-    patchControl({ status: next });
+    tryNativeCall(() => setRecordingPaused(false));
+    patchControl({ status: next, recording: true });
   });
 }
 
@@ -230,7 +303,9 @@ export async function probe(
 }
 
 export function toggleRecording(): void {
-  patchControl({ recording: !controlSlice.getSnapshot().recording });
+  const nextRecording = !controlSlice.getSnapshot().recording;
+  tryNativeCall(() => setRecordingPaused(!nextRecording));
+  patchControl({ recording: nextRecording });
 }
 
 export async function clear(): Promise<void> {
@@ -240,13 +315,24 @@ export async function clear(): Promise<void> {
 }
 
 export function setFilters(patch: Partial<TrafficFilters>): void {
-  filtersSlice.set({ ...filtersSlice.getSnapshot(), ...patch });
+  const next = { ...filtersSlice.getSnapshot(), ...patch };
+  filtersSlice.set(next);
+  saveJson(FILTERS_KEY, next);
 }
 
 export function updateSettings(patch: Partial<ProxySettings>): void {
   const nextHttpsDecrypt = patch.httpsDecrypt;
-  const next = { ...settingsSlice.getSnapshot(), ...patch };
+  const prev = settingsSlice.getSnapshot();
+  const next: ProxySettings = {
+    ...prev,
+    httpsDecrypt:
+      typeof nextHttpsDecrypt === 'boolean' ? nextHttpsDecrypt : prev.httpsDecrypt,
+    // Host/port are fixed by the native module.
+    host: '127.0.0.1',
+    port: prev.port,
+  };
   settingsSlice.set(next);
+  saveJson(SETTINGS_KEY, { httpsDecrypt: next.httpsDecrypt });
   if (typeof nextHttpsDecrypt === 'boolean') {
     tryNativeCall(() => setHttpsDecrypt(nextHttpsDecrypt));
   }

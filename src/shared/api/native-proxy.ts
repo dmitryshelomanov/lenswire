@@ -12,6 +12,12 @@ import type {
 
 import { asOverrideRule, mapNativeCapture } from './native-mappers';
 
+const DEFAULT_CERTIFICATE: CertificateInfo = {
+  status: 'not_generated',
+  fingerprint: null,
+  generatedAt: null,
+};
+
 export function getOverrides(): OverrideRule[] {
   try {
     const raw = LenswireProxy.getOverrides();
@@ -26,11 +32,20 @@ export function getOverrides(): OverrideRule[] {
 }
 
 export function setOverrides(rules: OverrideRule[]): void {
-  LenswireProxy.setOverrides(JSON.stringify(rules));
+  try {
+    LenswireProxy.setOverrides(JSON.stringify(rules));
+  } catch {
+    // Native module may be unavailable.
+  }
 }
 
 export function getProxyPort(): number {
-  return LenswireProxy.getProxyPort();
+  try {
+    const port = Number(LenswireProxy.getProxyPort());
+    return Number.isFinite(port) && port > 0 ? port : 9090;
+  } catch {
+    return 9090;
+  }
 }
 
 export function getCapturesRevision(): number | null {
@@ -45,26 +60,66 @@ export function getCapturesRevision(): number | null {
 }
 
 export async function getCaptures(): Promise<TrafficEntry[]> {
-  const items = await LenswireProxy.getCaptures();
-  return items.map((item) => mapNativeCapture(item as Record<string, unknown>));
+  try {
+    const items = await LenswireProxy.getCaptures();
+    return items.map((item) => mapNativeCapture(item as Record<string, unknown>));
+  } catch {
+    return [];
+  }
 }
 
 export async function getCapture(id: string): Promise<TrafficEntry | null> {
-  const item = await LenswireProxy.getCapture(id);
-  if (!item) return null;
-  return mapNativeCapture(item as Record<string, unknown>);
+  try {
+    const item = await LenswireProxy.getCapture(id);
+    if (!item) return null;
+    return mapNativeCapture(item as Record<string, unknown>);
+  } catch {
+    return null;
+  }
 }
 
 export function getProxyStatus(): ProxyStatus {
-  return LenswireProxy.getStatus() === 'listening' ? 'listening' : 'stopped';
+  try {
+    const status = LenswireProxy.getStatus();
+    if (status === 'listening' || status === 'connecting' || status === 'error') {
+      return status;
+    }
+    return 'stopped';
+  } catch {
+    return 'stopped';
+  }
+}
+
+export function setRecordingPaused(paused: boolean): void {
+  try {
+    LenswireProxy.setRecordingPaused(paused);
+  } catch {
+    // Native module may be unavailable or method missing on older binaries.
+  }
+}
+
+export function getRecordingPaused(): boolean {
+  try {
+    return Boolean(LenswireProxy.getRecordingPaused());
+  } catch {
+    return false;
+  }
 }
 
 export function setHttpsDecrypt(enabled: boolean): void {
-  LenswireProxy.setHttpsDecrypt(enabled);
+  try {
+    LenswireProxy.setHttpsDecrypt(enabled);
+  } catch {
+    // Native module may be unavailable.
+  }
 }
 
 export function getHttpsDecrypt(): boolean {
-  return LenswireProxy.getHttpsDecrypt();
+  try {
+    return Boolean(LenswireProxy.getHttpsDecrypt());
+  } catch {
+    return true;
+  }
 }
 
 export type ProxyDiagnostics = {
@@ -74,15 +129,19 @@ export type ProxyDiagnostics = {
 };
 
 export function getDiagnostics(): ProxyDiagnostics {
-  const value = LenswireProxy.getDiagnostics();
-  return {
-    status: String(value.status ?? 'stopped'),
-    lastError: value.lastError ? String(value.lastError) : null,
-    runtime:
-      value.runtime && typeof value.runtime === 'object'
-        ? (value.runtime as Record<string, unknown>)
-        : null,
-  };
+  try {
+    const value = LenswireProxy.getDiagnostics();
+    return {
+      status: String(value.status ?? 'stopped'),
+      lastError: value.lastError ? String(value.lastError) : null,
+      runtime:
+        value.runtime && typeof value.runtime === 'object'
+          ? (value.runtime as Record<string, unknown>)
+          : null,
+    };
+  } catch {
+    return { status: 'stopped', lastError: null, runtime: null };
+  }
 }
 
 export async function startCapture(settings: ProxySettings): Promise<ProxyStatus> {
@@ -104,7 +163,11 @@ export async function sendProbe(
 }
 
 export function clearCapture(): void {
-  LenswireProxy.clearCaptures();
+  try {
+    LenswireProxy.clearCaptures();
+  } catch {
+    // Native module may be unavailable.
+  }
 }
 
 function mapCertificateInfo(info: {
@@ -125,21 +188,37 @@ export async function generateCertificate(): Promise<CertificateInfo> {
 }
 
 export function getCertificateInfo(): CertificateInfo {
-  const info = LenswireProxy.getCertificateInfo();
-  return mapCertificateInfo(info);
+  try {
+    const info = LenswireProxy.getCertificateInfo();
+    return mapCertificateInfo(info);
+  } catch {
+    return { ...DEFAULT_CERTIFICATE };
+  }
 }
 
 export function getCertificateInstallUrl(): string | null {
-  return LenswireProxy.getCertificateInstallUrl();
+  try {
+    return LenswireProxy.getCertificateInstallUrl();
+  } catch {
+    return null;
+  }
 }
 
 export function getCertificatePemPath(): string | null {
-  return LenswireProxy.getCertificatePemPath();
+  try {
+    return LenswireProxy.getCertificatePemPath();
+  } catch {
+    return null;
+  }
 }
 
 /** Android: DER `.cer`; iOS: Documents PEM — for share / manual install. */
 export function getCertificateExportPath(): string | null {
-  return LenswireProxy.getCertificateExportPath();
+  try {
+    return LenswireProxy.getCertificateExportPath();
+  } catch {
+    return null;
+  }
 }
 
 export async function installCertificate(): Promise<void> {

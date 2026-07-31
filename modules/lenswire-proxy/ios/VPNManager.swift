@@ -5,6 +5,8 @@ import NetworkExtension
 final class VPNManager {
   static let shared = VPNManager()
   private let probeQueue = DispatchQueue(label: "lenswire.probe.queue", qos: .utility)
+  private let statusKey = "lenswire.vpn.status"
+  private var statusObserver: NSObjectProtocol?
 
   private struct ProbeRequest {
     let method: String
@@ -20,13 +22,47 @@ final class VPNManager {
     return "\(mainId).\(LenswireShared.providerBundleSuffix)"
   }
 
+  private init() {
+    statusObserver = NotificationCenter.default.addObserver(
+      forName: .NEVPNStatusDidChange,
+      object: nil,
+      queue: .main
+    ) { [weak self] notification in
+      guard let connection = notification.object as? NEVPNConnection else { return }
+      self?.syncStatus(from: connection.status)
+    }
+  }
+
   func getStatus() -> String {
-    return UserDefaults.standard.string(forKey: "lenswire.vpn.status") ?? "stopped"
+    return UserDefaults.standard.string(forKey: statusKey) ?? "stopped"
+  }
+
+  private func setStatus(_ status: String) {
+    UserDefaults.standard.set(status, forKey: statusKey)
+  }
+
+  private func syncStatus(from vpnStatus: NEVPNStatus) {
+    switch vpnStatus {
+    case .connecting, .reasserting:
+      setStatus("connecting")
+    case .connected:
+      setStatus("listening")
+    case .disconnecting:
+      setStatus("connecting")
+    case .disconnected, .invalid:
+      if getStatus() != "error" {
+        setStatus("stopped")
+      }
+    @unknown default:
+      break
+    }
   }
 
   func start(completion: @escaping (Error?) -> Void) {
+    setStatus("connecting")
     NETunnelProviderManager.loadAllFromPreferences { managers, error in
       if let error {
+        self.setStatus("error")
         completion(error)
         return
       }
@@ -42,22 +78,66 @@ final class VPNManager {
 
       manager.saveToPreferences { saveError in
         if let saveError {
+          self.setStatus("error")
           completion(saveError)
           return
         }
         manager.loadFromPreferences { loadError in
           if let loadError {
+            self.setStatus("error")
             completion(loadError)
             return
           }
           do {
             try manager.connection.startVPNTunnel()
-            UserDefaults.standard.set("listening", forKey: "lenswire.vpn.status")
-            completion(nil)
+            self.syncStatus(from: manager.connection.status)
+            self.awaitConnected(manager: manager, attemptsLeft: 40) { readyError in
+              if let readyError {
+                self.setStatus("error")
+                completion(readyError)
+              } else {
+                self.setStatus("listening")
+                completion(nil)
+              }
+            }
           } catch {
+            self.setStatus("error")
             completion(error)
           }
         }
+      }
+    }
+  }
+
+  private func awaitConnected(
+    manager: NETunnelProviderManager,
+    attemptsLeft: Int,
+    completion: @escaping (Error?) -> Void
+  ) {
+    let status = manager.connection.status
+    if status == .connected {
+      completion(nil)
+      return
+    }
+    if status == .disconnected || status == .invalid {
+      completion(NSError(
+        domain: "LenswireProxy",
+        code: 5,
+        userInfo: [NSLocalizedDescriptionKey: "VPN tunnel failed to connect."]
+      ))
+      return
+    }
+    if attemptsLeft <= 0 {
+      completion(NSError(
+        domain: "LenswireProxy",
+        code: 6,
+        userInfo: [NSLocalizedDescriptionKey: "VPN tunnel connect timed out."]
+      ))
+      return
+    }
+    DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+      manager.loadFromPreferences { _ in
+        self.awaitConnected(manager: manager, attemptsLeft: attemptsLeft - 1, completion: completion)
       }
     }
   }
@@ -69,14 +149,14 @@ final class VPNManager {
         return
       }
       guard let manager = managers?.first else {
-        UserDefaults.standard.set("stopped", forKey: "lenswire.vpn.status")
+        self.setStatus("stopped")
         completion(nil)
         return
       }
       manager.connection.stopVPNTunnel()
       manager.isEnabled = false
       manager.saveToPreferences { saveError in
-        UserDefaults.standard.set("stopped", forKey: "lenswire.vpn.status")
+        self.setStatus("stopped")
         completion(saveError)
       }
     }

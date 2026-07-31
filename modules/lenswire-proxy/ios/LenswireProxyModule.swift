@@ -19,6 +19,14 @@ public class LenswireProxyModule: Module {
       VPNManager.shared.getStatus()
     }
 
+    Function("setRecordingPaused") { (paused: Bool) in
+      LenswireShared.recordingPaused = paused
+    }
+
+    Function("getRecordingPaused") { () -> Bool in
+      LenswireShared.recordingPaused
+    }
+
     Function("getDiagnostics") { () -> [String: Any] in
       [
         "status": VPNManager.shared.getStatus(),
@@ -26,6 +34,7 @@ public class LenswireProxyModule: Module {
         "runtime": [
           "mode": "packet_tunnel",
           "proxyPort": Int(LenswireShared.proxyPort),
+          "recordingPaused": LenswireShared.recordingPaused,
         ],
       ]
     }

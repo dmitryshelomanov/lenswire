@@ -11,6 +11,7 @@ enum LenswireShared {
   static let caFingerprintKey = "lenswire.ca.fingerprint"
   static let httpsDecryptKey = "lenswire.settings.httpsDecrypt"
   static let overridesKey = "lenswire.settings.overrides"
+  static let recordingPausedKey = "lenswire.settings.recordingPaused"
   static let caPemFileName = "lenswire-ca.pem"
   static let caCertFileName = "lenswire-ca.cer"
   static let caKeyFileName = "lenswire-ca.key"
@@ -63,6 +64,11 @@ enum LenswireShared {
     set {
       sharedDefaults.set(newValue, forKey: httpsDecryptKey)
     }
+  }
+
+  static var recordingPaused: Bool {
+    get { sharedDefaults.bool(forKey: recordingPausedKey) }
+    set { sharedDefaults.set(newValue, forKey: recordingPausedKey) }
   }
 
   static var overridesJson: String {
@@ -213,6 +219,7 @@ enum LenswireShared {
   }
 
   static func appendCapture(_ entry: [String: Any]) {
+    if recordingPaused { return }
     capturesLock.lock()
     defer { capturesLock.unlock() }
     migrateCapturesAwayFromDefaults()

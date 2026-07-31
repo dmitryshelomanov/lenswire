@@ -128,10 +128,12 @@ export type TrafficEntry = {
   bypassCause?: string | null;
 };
 
-export type ProxyStatus = 'stopped' | 'listening';
+export type ProxyStatus = 'stopped' | 'listening' | 'connecting' | 'error';
 
 export type ProxySettings = {
+  /** Informational only — native listen address is fixed. */
   host: string;
+  /** Informational only — native listen port is fixed. */
   port: number;
   httpsDecrypt: boolean;
 };

@@ -41,8 +41,15 @@ class LenswireProxyModule : Module() {
     }
 
     Function("getStatus") {
-      val status = VpnController.status()
-      if (status == "error" || status == "connecting") "stopped" else status
+      VpnController.status()
+    }
+
+    Function("setRecordingPaused") { paused: Boolean ->
+      CaptureStore.setRecordingPaused(paused)
+    }
+
+    Function("getRecordingPaused") {
+      CaptureStore.isRecordingPaused()
     }
 
     Function("getDiagnostics") {

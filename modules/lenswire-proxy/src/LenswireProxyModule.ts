@@ -12,6 +12,8 @@ declare class LenswireProxyModule extends NativeModule {
   getStatus(): NativeProxyStatus;
   startCapture(): Promise<void>;
   stopCapture(): Promise<void>;
+  setRecordingPaused(paused: boolean): void;
+  getRecordingPaused(): boolean;
   sendProbe(probeType?: NativeProbeType, useHttps?: boolean): Promise<void>;
   generateCertificate(): Promise<NativeCertificateInfo>;
   getCertificateInfo(): NativeCertificateInfo;

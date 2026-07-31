@@ -3,9 +3,18 @@ package expo.modules.lenswireproxy
 import org.json.JSONArray
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class CaptureStoreTest {
+  @Test
+  fun `recording pause flag toggles`() {
+    CaptureStore.setRecordingPaused(true)
+    assertTrue(CaptureStore.isRecordingPaused())
+    CaptureStore.setRecordingPaused(false)
+    assertFalse(CaptureStore.isRecordingPaused())
+  }
+
   @Test
   fun `buildNextIndex keeps latest first and removes duplicate`() {
     val prev = JSONArray(listOf("a.json", "b.json", "c.json"))

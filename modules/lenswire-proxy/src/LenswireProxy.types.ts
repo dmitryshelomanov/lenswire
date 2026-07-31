@@ -1,4 +1,4 @@
-export type NativeProxyStatus = 'stopped' | 'listening' | 'connecting';
+export type NativeProxyStatus = 'stopped' | 'listening' | 'connecting' | 'error';
 
 export type NativeProbeType =
   'http_get' | 'https_get' | 'post_json' | 'post_form_urlencoded' | 'post_multipart' | 'get_image';
