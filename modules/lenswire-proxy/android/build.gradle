@@ -23,4 +23,6 @@ dependencies {
   implementation "org.bouncycastle:bcprov-jdk18on:1.78.1"
   implementation "org.bouncycastle:bcpkix-jdk18on:1.78.1"
   testImplementation "junit:junit:4.13.2"
+  // Real org.json for JVM unit tests (android.jar stubs throw "not mocked").
+  testImplementation "org.json:json:20240303"
 }
