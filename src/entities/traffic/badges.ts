@@ -89,6 +89,8 @@ export function reasonLabel(
       return 'http timeout';
     case 'http_dns_failed':
       return 'dns fail';
+    case 'upstream_connect_failed':
+      return 'upstream fail';
     case 'http_cleartext_blocked':
       return 'cleartext';
     case 'passthrough':

@@ -21,6 +21,7 @@ import javax.net.ssl.HttpsURLConnection
 import javax.net.ssl.KeyManagerFactory
 import javax.net.ssl.SSLContext
 import javax.net.ssl.SSLSocket
+import javax.net.ssl.SSLSocketFactory
 
 class LocalProxyServer(
   private val context: Context,
@@ -43,19 +44,62 @@ class LocalProxyServer(
 
   private fun mitmBypassCause(host: String): String? = mitmBypassHosts[host.lowercase()]
 
-  private fun protectIfNeeded(socket: Socket) {
-    runCatching { protectSocket?.invoke(socket) }
+  private fun connectUpstreamSocket(host: String, port: Int, timeoutMs: Int): Socket =
+    UnderlyingNetwork.connect(host, port, timeoutMs)
+
+  private fun applyUpstreamSocketFactory(conn: HttpURLConnection) {
+    if (conn is HttpsURLConnection) {
+      conn.sslSocketFactory = ProtectedSslSocketFactory(conn.connectTimeout.coerceAtLeast(1_000))
+    }
   }
 
-  private fun connectUpstreamSocket(host: String, port: Int, timeoutMs: Int): Socket {
-    val socket = Socket()
-    protectIfNeeded(socket)
-    socket.connect(InetSocketAddress(host, port), timeoutMs)
-    return socket
+  /**
+   * SSLSocketFactory that dials TCP via [UnderlyingNetwork] (protect + bind + scoped DNS)
+   * before wrapping with the platform TLS stack.
+   */
+  private class ProtectedSslSocketFactory(
+    private val connectTimeoutMs: Int,
+  ) : SSLSocketFactory() {
+    private val defaultSsl = SSLSocketFactory.getDefault() as SSLSocketFactory
+
+    override fun getDefaultCipherSuites(): Array<String> = defaultSsl.defaultCipherSuites
+    override fun getSupportedCipherSuites(): Array<String> = defaultSsl.supportedCipherSuites
+
+    override fun createSocket(s: Socket, host: String, port: Int, autoClose: Boolean): Socket {
+      UnderlyingNetwork.prepareTcpSocket(s)
+      return defaultSsl.createSocket(s, host, port, autoClose)
+    }
+
+    override fun createSocket(host: String, port: Int): Socket {
+      val tcp = UnderlyingNetwork.connect(host, port, connectTimeoutMs)
+      return defaultSsl.createSocket(tcp, host, port, true)
+    }
+
+    override fun createSocket(host: String, port: Int, localHost: InetAddress, localPort: Int): Socket {
+      val tcp = UnderlyingNetwork.socketFactory().createSocket(host, port, localHost, localPort)
+      return defaultSsl.createSocket(tcp, host, port, true)
+    }
+
+    override fun createSocket(address: InetAddress, port: Int): Socket {
+      val tcp = UnderlyingNetwork.socketFactory().createSocket(address, port)
+      return defaultSsl.createSocket(tcp, address.hostAddress ?: address.hostName, port, true)
+    }
+
+    override fun createSocket(
+      address: InetAddress,
+      port: Int,
+      localAddress: InetAddress,
+      localPort: Int,
+    ): Socket {
+      val tcp = UnderlyingNetwork.socketFactory().createSocket(address, port, localAddress, localPort)
+      return defaultSsl.createSocket(tcp, address.hostAddress ?: address.hostName, port, true)
+    }
   }
 
   fun start(port: Int = CaptureStore.PROXY_PORT) {
     if (!running.compareAndSet(false, true)) return
+    // Keep egress helper in sync when started outside VpnService (tests / probe-only).
+    UnderlyingNetwork.configure(context, protectSocket)
     val pool = Executors.newCachedThreadPool()
     acceptPool = pool
     try {
@@ -757,6 +801,11 @@ class LocalProxyServer(
       relayBidirectional(client, upstream)
     } catch (e: Exception) {
       val failure = upstreamFailureDetail("tcp", connectHost, port, e)
+      android.util.Log.w(
+        "LenswireUpstream",
+        "passthrough failed host=$displayHost connect=$connectHost:$port reason=${failure.reasonCode} ${failure.detail}",
+        e,
+      )
       appendTunnelCapture(
         id = id,
         startedAt = startedAt,
@@ -764,7 +813,7 @@ class LocalProxyServer(
         connectHost = connectHost,
         connectPort = port,
         status = 502,
-        reasonCode = "upstream_connect_failed",
+        reasonCode = failure.reasonCode,
         clientAttribution = clientAttribution,
         hostnameSource = hostnameSource,
         hostnameConfidence = hostnameConfidence,
@@ -776,6 +825,37 @@ class LocalProxyServer(
       )
       runCatching { client.close() }
     }
+  }
+
+  /**
+   * Open upstream URL via [Proxy.NO_PROXY].
+   * Plain HTTP rewrites the host to an underlying-network-resolved IP (no SocketFactory API).
+   * HTTPS keeps the hostname for SNI; [ProtectedSslSocketFactory] dials via [UnderlyingNetwork].
+   */
+  private fun openUpstreamConnection(url: URL): java.net.URLConnection {
+    if (url.protocol.equals("https", ignoreCase = true)) {
+      return url.openConnection(Proxy.NO_PROXY)
+    }
+    val host = url.host
+    val resolved = runCatching { UnderlyingNetwork.resolve(host) }.getOrNull()
+      ?: return url.openConnection(Proxy.NO_PROXY)
+    val ip = resolved.hostAddress ?: return url.openConnection(Proxy.NO_PROXY)
+    if (host.equals(ip, ignoreCase = true)) {
+      return url.openConnection(Proxy.NO_PROXY)
+    }
+    val port = url.port
+    val path = url.file ?: "/"
+    val connectUrl = if (port > 0) URL(url.protocol, ip, port, path) else URL(url.protocol, ip, path)
+    android.util.Log.d("LenswireUpstream", "http open host=$host -> $ip")
+    val conn = connectUrl.openConnection(Proxy.NO_PROXY)
+    if (conn is HttpURLConnection) {
+      val hostHeader = when {
+        port > 0 && !(url.protocol == "http" && port == 80) -> "$host:$port"
+        else -> host
+      }
+      conn.setRequestProperty("Host", hostHeader)
+    }
+    return conn
   }
 
   private fun appendTunnelCapture(
@@ -987,12 +1067,13 @@ class LocalProxyServer(
     }
 
     return try {
-      val conn = (url.openConnection(Proxy.NO_PROXY) as HttpURLConnection).apply {
+      val conn = (openUpstreamConnection(url) as HttpURLConnection).apply {
         requestMethod = method
         instanceFollowRedirects = false
         connectTimeout = 15_000
         readTimeout = 20_000
         doInput = true
+        applyUpstreamSocketFactory(this)
         effectiveHeaders.forEach { (k, v) ->
           if (
             !k.equals("Proxy-Connection", true) &&
@@ -1190,12 +1271,13 @@ private fun upstreamFailureDetail(
     val startMs = System.currentTimeMillis()
     val pathWithQuery = if (req.pathWithQuery.startsWith("/")) req.pathWithQuery else "/${req.pathWithQuery}"
     val url = URL("https", host, if (port == 443) -1 else port, pathWithQuery)
-    val conn = (url.openConnection(Proxy.NO_PROXY) as HttpsURLConnection).apply {
+    val conn = (openUpstreamConnection(url) as HttpsURLConnection).apply {
       requestMethod = req.method
       instanceFollowRedirects = false
       connectTimeout = 20_000
       readTimeout = 25_000
       doInput = true
+      applyUpstreamSocketFactory(this)
       if (req.body.isNotEmpty()) {
         doOutput = true
       }
@@ -1359,7 +1441,7 @@ private fun upstreamFailureDetail(
       "upstream_connect_failed" -> "Proxy could not connect to upstream target."
       "http_upstream_failed" -> "Plain HTTP upstream request failed before any response was received."
       "http_upstream_timeout" -> "Plain HTTP upstream request timed out before any response was received."
-      "http_dns_failed" -> "DNS resolution failed while forwarding plain HTTP upstream request."
+      "http_dns_failed" -> "DNS resolution failed while connecting to upstream target."
       "http_cleartext_blocked" -> "Android cleartext policy blocked plain HTTP upstream request."
       "passthrough" -> "HTTPS passthrough tunnel; HTTP payload is unavailable."
       else -> reasonCode.replace('_', ' ')
@@ -1583,5 +1665,4 @@ private fun upstreamFailureDetail(
     }
     return out
   }
-
 }

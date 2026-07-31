@@ -64,6 +64,12 @@ const ALPN_NO_HTTP11_HINT =
 const HTTP_UPSTREAM_FAILED_HINT =
   'Plain HTTP request reached Lenswire but upstream fetch failed before any response. Check Capture summary for transport error details (DNS, timeout, connect).';
 
+const UPSTREAM_CONNECT_FAILED_HINT =
+  'Lenswire could not open a TCP connection to the upstream host (routing/protect/bind or network error). Check Capture summary for the Java exception detail.';
+
+const UPSTREAM_DNS_FAILED_HINT =
+  'DNS resolution for the upstream host failed on the device network path. Check Capture summary; without VPN the same host should resolve.';
+
 const HTTP_CLEAR_BLOCKED_HINT =
   'Android blocked cleartext HTTP while Lenswire was forwarding upstream. Enable cleartext traffic for the app build and retry.';
 
@@ -153,10 +159,15 @@ export function payloadUnavailableHint(entry: TrafficEntry): string | null {
     }
     if (
       entry.reasonCode === 'http_upstream_failed' ||
-      entry.reasonCode === 'http_upstream_timeout' ||
-      entry.reasonCode === 'http_dns_failed'
+      entry.reasonCode === 'http_upstream_timeout'
     ) {
       return `${summary}\n\n${HTTP_UPSTREAM_FAILED_HINT}`;
+    }
+    if (entry.reasonCode === 'http_dns_failed') {
+      return `${summary}\n\n${UPSTREAM_DNS_FAILED_HINT}`;
+    }
+    if (entry.reasonCode === 'upstream_connect_failed') {
+      return `${summary}\n\n${UPSTREAM_CONNECT_FAILED_HINT}`;
     }
     if (entry.reasonCode === 'http_cleartext_blocked') {
       return `${summary}\n\n${HTTP_CLEAR_BLOCKED_HINT}`;
@@ -175,12 +186,10 @@ export function decryptHelpHint(entry: TrafficEntry): string | null {
   if (entry.reasonCode === 'websocket_relay') return WEBSOCKET_RELAY_HINT;
   if (entry.reasonCode === 'alpn_no_http11') return ALPN_NO_HTTP11_HINT;
   if (entry.reasonCode === 'mitm_error') return MITM_ERROR_HINT;
-  if (
-    entry.reasonCode === 'http_upstream_failed' ||
-    entry.reasonCode === 'http_upstream_timeout' ||
-    entry.reasonCode === 'http_dns_failed'
-  )
+  if (entry.reasonCode === 'http_upstream_failed' || entry.reasonCode === 'http_upstream_timeout')
     return HTTP_UPSTREAM_FAILED_HINT;
+  if (entry.reasonCode === 'http_dns_failed') return UPSTREAM_DNS_FAILED_HINT;
+  if (entry.reasonCode === 'upstream_connect_failed') return UPSTREAM_CONNECT_FAILED_HINT;
   if (entry.reasonCode === 'http_cleartext_blocked') return HTTP_CLEAR_BLOCKED_HINT;
   return null;
 }
@@ -205,7 +214,8 @@ export function decryptHelpTitle(entry: TrafficEntry): string | null {
   if (entry.reasonCode === 'mitm_error') return 'MITM protocol mismatch';
   if (entry.reasonCode === 'http_upstream_failed') return 'HTTP upstream failed';
   if (entry.reasonCode === 'http_upstream_timeout') return 'HTTP upstream timeout';
-  if (entry.reasonCode === 'http_dns_failed') return 'HTTP upstream DNS';
+  if (entry.reasonCode === 'http_dns_failed') return 'Upstream DNS failed';
+  if (entry.reasonCode === 'upstream_connect_failed') return 'Upstream connect failed';
   if (entry.reasonCode === 'http_cleartext_blocked') return 'HTTP cleartext blocked';
   return null;
 }

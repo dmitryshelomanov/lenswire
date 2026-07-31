@@ -153,6 +153,7 @@ describe('reasonLabel', () => {
     expect(reasonLabel('http_upstream_failed')).toBe('http fail');
     expect(reasonLabel('http_upstream_timeout')).toBe('http timeout');
     expect(reasonLabel('http_dns_failed')).toBe('dns fail');
+    expect(reasonLabel('upstream_connect_failed')).toBe('upstream fail');
     expect(reasonLabel('http_cleartext_blocked')).toBe('cleartext');
     expect(reasonLabel('mitm_no_request', null, 'guess=empty; bytes=0; cause=timeout')).toBe(
       'no request',

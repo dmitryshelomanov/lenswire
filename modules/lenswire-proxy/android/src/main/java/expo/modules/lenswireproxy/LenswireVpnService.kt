@@ -10,6 +10,7 @@ import android.net.VpnService
 import android.os.Build
 import android.os.ParcelFileDescriptor
 import androidx.core.app.NotificationCompat
+import java.net.DatagramSocket
 import java.net.Socket
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -29,6 +30,9 @@ class LenswireVpnService : VpnService() {
     private var serviceInstance: LenswireVpnService? = null
 
     fun protectSocket(socket: Socket): Boolean =
+      serviceInstance?.runCatching { protect(socket) }?.getOrDefault(false) == true
+
+    fun protectDatagram(socket: DatagramSocket): Boolean =
       serviceInstance?.runCatching { protect(socket) }?.getOrDefault(false) == true
 
     @Volatile
@@ -97,6 +101,12 @@ class LenswireVpnService : VpnService() {
         return
       }
 
+      UnderlyingNetwork.configure(
+        context = applicationContext,
+        protectSocket = ::protectSocket,
+        protectDatagram = ::protectDatagram,
+      )
+
       val proxy = LocalProxyServer(applicationContext, ::protectSocket)
       proxy.start(CaptureStore.PROXY_PORT)
       proxyServer = proxy
@@ -114,11 +124,6 @@ class LenswireVpnService : VpnService() {
       engine.start()
       tun2Socks = engine
 
-      if (!engine.isRunning()) {
-        failStart("tun2socks failed to start")
-        return
-      }
-
       isRunning = true
       ProxyRuntime.status = "listening"
       ProxyRuntime.lastError = null
@@ -130,18 +135,19 @@ class LenswireVpnService : VpnService() {
         "routes" to if (includeIpv6Route) listOf("0.0.0.0/0", "::/0") else listOf("0.0.0.0/0"),
         "ipv6RouteEnabled" to includeIpv6Route,
         "dns" to listOf("1.1.1.1", "8.8.8.8"),
+        "underlyingNetwork" to (UnderlyingNetwork.underlyingOrNull()?.toString()),
         "httpsDecrypt" to applicationContext
           .getSharedPreferences("lenswire_settings", MODE_PRIVATE)
           .getBoolean("httpsDecrypt", true),
         "caReady" to (CertificateManager.loadCa(applicationContext) != null),
         "quicForcedToTcp" to true,
-        "udpAssociate" to false,
+        "udpAssociate" to true,
         "capabilities" to mapOf(
           "httpCapture" to true,
           "httpsMitmNonPinned" to true,
           "pinnedTrafficDecrypt" to false,
           "nonHttpPortsVisible" to true,
-          "tcpOnlySocks" to true,
+          "tcpOnlySocks" to false,
           "quicDecrypt" to false,
         ),
       )
@@ -174,6 +180,7 @@ class LenswireVpnService : VpnService() {
     } catch (_: Exception) {
     }
     tunInterface = null
+    UnderlyingNetwork.clear()
     started.set(false)
     stopForeground(STOP_FOREGROUND_REMOVE)
     stopSelf()
@@ -203,6 +210,7 @@ class LenswireVpnService : VpnService() {
     } catch (_: Exception) {
     }
     tunInterface = null
+    UnderlyingNetwork.clear()
     started.set(false)
     ProxyRuntime.diagnostics = mapOf(
       "mode" to "stopped",
