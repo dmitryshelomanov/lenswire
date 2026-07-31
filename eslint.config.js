@@ -1,6 +1,7 @@
 const { defineConfig } = require('eslint/config');
 const expoConfig = require('eslint-config-expo/flat');
 const simpleImportSort = require('eslint-plugin-simple-import-sort');
+const globals = require('globals');
 
 module.exports = defineConfig([
   expoConfig,
@@ -15,6 +16,13 @@ module.exports = defineConfig([
       'targets/**',
       'website/**',
     ],
+  },
+  {
+    files: ['scripts/**/*.{js,cjs}', 'plugins/**/*.{js,cjs}'],
+    languageOptions: {
+      sourceType: 'commonjs',
+      globals: globals.node,
+    },
   },
   {
     plugins: {
