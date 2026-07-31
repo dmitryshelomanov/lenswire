@@ -158,7 +158,8 @@ export const howTeaser = {
 export const howItWorks = {
   title: 'How the pipe works',
   lead: 'Apps hit a local VPN. The proxy checks whether it can decrypt HTTPS. If yes — MITM: open the bytes, inspect, send them on. If not — a sealed byte tunnel; you still see the connection in the UI, but not the HTTP payload.',
-  platformNote: 'iOS Packet Tunnel · Android VpnService → tun2socks → SOCKS',
+  platformNote:
+    'iOS Packet Tunnel (utun → hev → SOCKS) · Android VpnService (TUN → tun2socks → SOCKS)',
   fork: {
     intro: 'The fork',
     heading: 'One gate. Two exits.',

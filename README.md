@@ -93,20 +93,57 @@ Full asset map: [`docs/STORE-ASSETS.md`](docs/STORE-ASSETS.md). Android upload s
 - Mac + Xcode 16+ (iOS)
 - Android Studio / SDK (Android)
 - For **iOS device VPN**: Apple Developer Program (Network Extension) + physical iPhone
-- For **iOS Simulator Dev Mode**: free Personal Team is enough
+- For **iOS Simulator**: free Personal Team is enough (tunnel capture still needs a device)
 - For **Android**: no paid account required (`VpnService`)
 
 ## Run
 
+Shared setup once:
+
 ```bash
 nvm use
 npm install
-npm run prebuild:ios       # first time / after native iOS changes
-npm run ios                # Simulator OK without paid NE team
-
-npm run prebuild:android   # first time / after native Android changes
-npm run android
 ```
+
+### iOS
+
+**First time / after native changes** (`targets/network-packet-tunnel/`, `vendor/`, entitlements, NE):
+
+```bash
+npm run prebuild:ios   # expo prebuild --clean + link-hev-ios (HevSocks5Tunnel)
+```
+
+**Day-to-day:**
+
+```bash
+npm run ios                              # Simulator (UI only — no Packet Tunnel)
+npx expo run:ios --device                # physical iPhone (full TUN → hev → SOCKS → MITM)
+```
+
+| | Simulator | Device |
+|--|--|--|
+| App UI | yes | yes |
+| Full capture (VPN) | **no** (`IPC failed`) | yes (paid team + NE + `appleTeamId`) |
+
+On device after install: **Certificate** → Generate/Install/Trust CA → **Start** → allow VPN → Safari. Details: [`modules/lenswire-proxy/ios/README.md`](modules/lenswire-proxy/ios/README.md).
+
+If you ran plain `expo prebuild` without the npm script, link hev manually: `npm run link:hev-ios`.
+
+### Android
+
+**First time / after native changes** (`modules/lenswire-proxy/android/`, manifest, Gradle):
+
+```bash
+npm run prebuild:android
+```
+
+**Day-to-day:**
+
+```bash
+npm run android          # emulator or device (full TUN → tun2socks → SOCKS → MITM)
+```
+
+After install: **Certificate** → Generate CA → on rooted AVD for Chrome use `npm run android:trust-ca` → **Start** → allow VPN. Details: [`modules/lenswire-proxy/android/README.md`](modules/lenswire-proxy/android/README.md).
 
 ## iOS: Install CA → view HTTPS
 
@@ -118,18 +155,11 @@ npm run android
 
 Toggle **HTTPS decryption** in Settings. Apps with certificate pinning will fail while decryption is on.
 
-## iOS Simulator Dev Mode
+## iOS Simulator
 
-Packet Tunnel does **not** work on Simulator (`IPC failed`). Dev Mode starts `LocalProxyServer` in-process.
+Packet Tunnel does **not** work on Simulator (`IPC failed`). Full capture requires a physical device (see **Run → iOS** above).
 
-```bash
-npm run ios
-# Certificate → Generate CA
-npm run sim:trust-ca
-# Start → Send test request (HTTP) or Mac proxy + Safari HTTPS
-```
-
-Optional Mac HTTP proxy for Simulator Safari: `sim:mac-proxy-on` / `sim:mac-proxy-off`.
+Optional Mac HTTP proxy for Simulator Safari: `npm run sim:mac-proxy-on` / `sim:mac-proxy-off`, plus `npm run sim:trust-ca` after Generate CA.
 
 ## Android full-device mode
 
@@ -199,14 +229,16 @@ The generated files in app sandbox are:
 Notes:
 
 - Android routes device traffic through TUN (`VpnService`) → `tun2socks` → SOCKS bridge → local MITM proxy.
+- iOS (device) uses the same model: Packet Tunnel `utun` → hev → SOCKS → MITM (no system HTTP proxy). Details: [`modules/lenswire-proxy/ios/README.md`](modules/lenswire-proxy/ios/README.md).
 - HTTP capture works without emulator/browser manual proxy setup.
 - HTTPS Path B (TCP/443): SNI-aware MITM (SOCKS peeks ClientHello, proxy uses hostname for leaf cert).
 - Fail-open: recoverable MITM failures fall back to passthrough; handshake-rejected hosts are bypassed for the session.
-- SOCKS bridge is **TCP-only** — UDP/443 (QUIC) is not decrypted; Chrome typically falls back to TCP HTTPS.
+- QUIC / HTTP/3 is not decrypted (`quicDecrypt: false`); browsers typically fall back to TCP HTTPS. SOCKS UDP ASSOCIATE is used for DNS, not for QUIC decrypt.
 - Tunnel-only rows show a reason (`no sni`, `trust?`, `tls off`, …) in the traffic list and request Overview.
 - Pinned apps remain tunnel-only even with System CA. Lenswire cannot bypass pinning — on a rooted device unpin separately (Frida / objection / LSPosed), then decrypt again.
 - Trust vs pinning: System CA fixes Chrome/browser trust; Frida-style unpinning is a separate step for apps that pin certificates.
-- No Apple Developer account needed — Android `VpnService` is sufficient for this workflow.
+- No Apple Developer account needed for Android (`VpnService`). iOS full capture needs a paid team + Network Extension + physical device.
+- After regenerating the iOS native project, use `npm run prebuild:ios` (runs `link:hev-ios`) so HevSocks5Tunnel is linked into the Packet Tunnel target.
 
 ## Device usage (real iOS VPN)
 
@@ -220,16 +252,18 @@ Notes:
 VPN layer (Packet Tunnel on iOS / VpnService on Android) intercepts device traffic and forwards it to a local MITM (`LocalProxyServer`). HTTPS decryption works only when Lenswire CA is installed and `HTTPS decryption` is enabled.
 
 ```
-iOS device:  apps → Packet Tunnel → LocalProxyServer (MITM) → UI
-iOS Sim:     Start → in-process LocalProxyServer → UI
+iOS device:  apps → PacketTunnel(utun) → hev → SOCKS → LocalProxyServer (MITM) → UI
+iOS Sim:     Packet Tunnel unavailable — use device for full capture
 Android:     VpnService(TUN) → tun2socks → SOCKS bridge → LocalProxyServer(MITM) → UI
 ```
 
 Key components:
 
-- `targets/network-packet-tunnel/`: iOS Packet Tunnel (VPN interception)
+- `targets/network-packet-tunnel/`: iOS Packet Tunnel (VPN interception + hev + SOCKS)
 - `modules/lenswire-proxy/`: native bridge wiring the tunnel/proxy to the app
 - `LocalProxyServer`: local MITM proxy (HTTPS decryption + request data to UI)
+- [`modules/lenswire-proxy/android/README.md`](modules/lenswire-proxy/android/README.md): Android capture stack (TUN → SOCKS → MITM)
+- [`modules/lenswire-proxy/ios/README.md`](modules/lenswire-proxy/ios/README.md): iOS capture stack (utun → hev → SOCKS → MITM)
 - `sandbox/`: separate RN probe app (checks User CA trust + mocks)
 - `app/`: UI and settings (CA trust / `HTTPS decryption`)
 
@@ -238,7 +272,8 @@ Key components:
 | Script                                      | Purpose                                             |
 | ------------------------------------------- | --------------------------------------------------- |
 | `npm run ios` / `android`                   | Build & run                                         |
-| `npm run prebuild:ios` / `prebuild:android` | Regenerate native projects                          |
+| `npm run prebuild:ios` / `prebuild:android` | Regenerate native projects (iOS also runs `link:hev-ios`) |
+| `npm run link:hev-ios`                      | Link HevSocks5Tunnel into Packet Tunnel (after prebuild) |
 | `npm run build:android:preview:local`       | Local EAS preview APK                               |
 | `npm run build:android:local`               | Local EAS production AAB                            |
 | `npm run screenshots:store`                 | Colorful marketing frames + website JPG screenshots |
