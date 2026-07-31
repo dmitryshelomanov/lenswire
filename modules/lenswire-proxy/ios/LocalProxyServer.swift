@@ -17,7 +17,9 @@ final class LocalProxyServer {
   func start() throws {
     guard listener == nil else { return }
     let port = NWEndpoint.Port(rawValue: LenswireShared.proxyPort)!
-    listener = try NWListener(using: .tcp, on: port)
+    let parameters = NWParameters.tcp
+    parameters.requiredLocalEndpoint = NWEndpoint.hostPort(host: "127.0.0.1", port: port)
+    listener = try NWListener(using: parameters)
     listener?.newConnectionHandler = { [weak self] connection in
       self?.handle(connection: connection)
     }

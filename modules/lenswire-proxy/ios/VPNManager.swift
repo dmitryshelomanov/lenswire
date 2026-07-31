@@ -7,6 +7,7 @@ final class VPNManager {
   private let probeQueue = DispatchQueue(label: "lenswire.probe.queue", qos: .utility)
   private let statusKey = "lenswire.vpn.status"
   private var statusObserver: NSObjectProtocol?
+  private var tunnelManager: NETunnelProviderManager?
 
   private struct ProbeRequest {
     let method: String
@@ -28,9 +29,17 @@ final class VPNManager {
       object: nil,
       queue: .main
     ) { [weak self] notification in
+      guard let self else { return }
       guard let connection = notification.object as? NEVPNConnection else { return }
-      self?.syncStatus(from: connection.status)
+      guard let ours = self.tunnelManager?.connection, connection === ours else { return }
+      self.syncStatus(from: connection.status)
     }
+    // Extension writes App Group status; clear stale UserDefaults before async NE reconcile
+    // so JS bootstrap does not briefly (or stuck) show Stop when the tunnel is down.
+    if ProxyRuntimeStore.status == "stopped", getStatus() != "error" {
+      setStatus("stopped")
+    }
+    reconcileStatus()
   }
 
   func getStatus() -> String {
@@ -39,6 +48,12 @@ final class VPNManager {
 
   private func setStatus(_ status: String) {
     UserDefaults.standard.set(status, forKey: statusKey)
+  }
+
+  private func markLocallyStopped() {
+    setStatus("stopped")
+    ProxyRuntimeStore.markStopped()
+    tunnelManager = nil
   }
 
   private func syncStatus(from vpnStatus: NEVPNStatus) {
@@ -58,16 +73,45 @@ final class VPNManager {
     }
   }
 
+  private func lenswireManager(from managers: [NETunnelProviderManager]?) -> NETunnelProviderManager? {
+    managers?.first { manager in
+      guard let proto = manager.protocolConfiguration as? NETunnelProviderProtocol else { return false }
+      return proto.providerBundleIdentifier == providerBundleId
+    }
+  }
+
+  /// Align cached UserDefaults status with live Network Extension state (or clear on IPC/empty).
+  private func reconcileStatus() {
+    NETunnelProviderManager.loadAllFromPreferences { managers, error in
+      if error != nil {
+        self.markLocallyStopped()
+        return
+      }
+      guard let manager = self.lenswireManager(from: managers) else {
+        self.markLocallyStopped()
+        return
+      }
+      self.tunnelManager = manager
+      self.syncStatus(from: manager.connection.status)
+      if manager.connection.status == .disconnected || manager.connection.status == .invalid {
+        ProxyRuntimeStore.markStopped()
+      }
+    }
+  }
+
   func start(completion: @escaping (Error?) -> Void) {
     setStatus("connecting")
+    ProxyRuntimeStore.status = "connecting"
+    ProxyRuntimeStore.lastError = nil
     NETunnelProviderManager.loadAllFromPreferences { managers, error in
       if let error {
         self.setStatus("error")
+        ProxyRuntimeStore.markError(error.localizedDescription)
         completion(error)
         return
       }
 
-      let manager = managers?.first { $0.protocolConfiguration is NETunnelProviderProtocol } ?? NETunnelProviderManager()
+      let manager = self.lenswireManager(from: managers) ?? NETunnelProviderManager()
 
       let proto = NETunnelProviderProtocol()
       proto.providerBundleIdentifier = self.providerBundleId
@@ -75,16 +119,19 @@ final class VPNManager {
       manager.protocolConfiguration = proto
       manager.localizedDescription = "Lenswire"
       manager.isEnabled = true
+      self.tunnelManager = manager
 
       manager.saveToPreferences { saveError in
         if let saveError {
           self.setStatus("error")
+          ProxyRuntimeStore.markError(saveError.localizedDescription)
           completion(saveError)
           return
         }
         manager.loadFromPreferences { loadError in
           if let loadError {
             self.setStatus("error")
+            ProxyRuntimeStore.markError(loadError.localizedDescription)
             completion(loadError)
             return
           }
@@ -94,14 +141,21 @@ final class VPNManager {
             self.awaitConnected(manager: manager, attemptsLeft: 40) { readyError in
               if let readyError {
                 self.setStatus("error")
+                let message = readyError.localizedDescription
+                // Prefer tunnel-written lastError if present.
+                if ProxyRuntimeStore.lastError == nil {
+                  ProxyRuntimeStore.markError(message)
+                }
                 completion(readyError)
               } else {
                 self.setStatus("listening")
+                ProxyRuntimeStore.status = "listening"
                 completion(nil)
               }
             }
           } catch {
             self.setStatus("error")
+            ProxyRuntimeStore.markError(error.localizedDescription)
             completion(error)
           }
         }
@@ -144,20 +198,22 @@ final class VPNManager {
 
   func stop(completion: @escaping (Error?) -> Void) {
     NETunnelProviderManager.loadAllFromPreferences { managers, error in
-      if let error {
-        completion(error)
-        return
-      }
-      guard let manager = managers?.first else {
-        self.setStatus("stopped")
+      if error != nil {
+        self.markLocallyStopped()
         completion(nil)
         return
       }
+      guard let manager = self.lenswireManager(from: managers) ?? managers?.first else {
+        self.markLocallyStopped()
+        completion(nil)
+        return
+      }
+      self.tunnelManager = manager
       manager.connection.stopVPNTunnel()
       manager.isEnabled = false
-      manager.saveToPreferences { saveError in
-        self.setStatus("stopped")
-        completion(saveError)
+      manager.saveToPreferences { _ in
+        self.markLocallyStopped()
+        completion(nil)
       }
     }
   }

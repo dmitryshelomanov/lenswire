@@ -15,9 +15,8 @@ import java.net.Socket
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
- * MVP VpnService: establishes a VPN session (system toggle) without routing all traffic
- * through TUN (no addRoute). LocalProxyServer handles captures / probe / emulator http-proxy.
- * Full tun2socks capture is a follow-up.
+ * VpnService: establishes a VPN session and routes traffic through
+ * TUN → tun2socks → SOCKS bridge → LocalProxyServer (MITM).
  */
 class LenswireVpnService : VpnService() {
   companion object {

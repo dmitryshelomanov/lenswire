@@ -6,6 +6,8 @@ enum LenswireShared {
   static let appGroupId = "group.com.lenswire.app"
   static let capturesKey = "lenswire.captures"
   static let proxyPort: UInt16 = 9090
+  static let socksPort: UInt16 = 1080
+  static let ipv6RouteEnabledKey = "lenswire.settings.vpnIpv6RouteEnabled"
   static let providerBundleSuffix = "network-packet-tunnel"
   static let caGeneratedAtKey = "lenswire.ca.generatedAt"
   static let caFingerprintKey = "lenswire.ca.fingerprint"
@@ -64,6 +66,11 @@ enum LenswireShared {
     set {
       sharedDefaults.set(newValue, forKey: httpsDecryptKey)
     }
+  }
+
+  static var ipv6RouteEnabled: Bool {
+    get { sharedDefaults.bool(forKey: ipv6RouteEnabledKey) }
+    set { sharedDefaults.set(newValue, forKey: ipv6RouteEnabledKey) }
   }
 
   static var recordingPaused: Bool {
@@ -601,5 +608,96 @@ enum LenswireShared {
     guard let start = header.range(of: token) else { return "" }
     let tail = header[start.upperBound...]
     return String(tail.prefix { $0 != "\"" })
+  }
+}
+
+/// App Group–backed runtime diagnostics (Android `ProxyRuntime` equivalent).
+enum ProxyRuntimeStore {
+  private static let statusKey = "lenswire.runtime.status"
+  private static let lastErrorKey = "lenswire.runtime.lastError"
+  private static let diagnosticsKey = "lenswire.runtime.diagnostics"
+
+  static var status: String {
+    get { LenswireShared.sharedDefaults.string(forKey: statusKey) ?? "stopped" }
+    set { LenswireShared.sharedDefaults.set(newValue, forKey: statusKey) }
+  }
+
+  static var lastError: String? {
+    get { LenswireShared.sharedDefaults.string(forKey: lastErrorKey) }
+    set {
+      if let newValue {
+        LenswireShared.sharedDefaults.set(newValue, forKey: lastErrorKey)
+      } else {
+        LenswireShared.sharedDefaults.removeObject(forKey: lastErrorKey)
+      }
+    }
+  }
+
+  static var diagnostics: [String: Any] {
+    get {
+      guard let data = LenswireShared.sharedDefaults.data(forKey: diagnosticsKey),
+            let obj = try? JSONSerialization.jsonObject(with: data),
+            let map = obj as? [String: Any]
+      else {
+        return [
+          "mode": "stopped",
+          "proxyPort": Int(LenswireShared.proxyPort),
+          "socksPort": Int(LenswireShared.socksPort),
+        ]
+      }
+      return map
+    }
+    set {
+      if let data = try? JSONSerialization.data(withJSONObject: sanitize(newValue)) {
+        LenswireShared.sharedDefaults.set(data, forKey: diagnosticsKey)
+      }
+    }
+  }
+
+  static func snapshot() -> [String: Any] {
+    var out: [String: Any] = [
+      "status": status,
+      "runtime": diagnostics,
+    ]
+    if let lastError {
+      out["lastError"] = lastError
+    } else {
+      out["lastError"] = NSNull()
+    }
+    return out
+  }
+
+  static func markStopped() {
+    status = "stopped"
+    lastError = nil
+    diagnostics = [
+      "mode": "stopped",
+      "proxyPort": Int(LenswireShared.proxyPort),
+      "socksPort": Int(LenswireShared.socksPort),
+    ]
+  }
+
+  static func markError(_ message: String) {
+    status = "error"
+    lastError = message
+  }
+
+  private static func sanitize(_ value: Any) -> Any {
+    switch value {
+    case let dict as [String: Any]:
+      var out: [String: Any] = [:]
+      for (k, v) in dict {
+        out[k] = sanitize(v)
+      }
+      return out
+    case let arr as [Any]:
+      return arr.map { sanitize($0) }
+    case is String, is Int, is Double, is Bool, is NSNull:
+      return value
+    case let n as NSNumber:
+      return n
+    default:
+      return String(describing: value)
+    }
   }
 }

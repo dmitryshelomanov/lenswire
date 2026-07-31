@@ -220,7 +220,7 @@ export default function SettingsScreen() {
           </Text>
         </Field>
 
-        <Field label="Android diagnostics">
+        <Field label="Capture diagnostics">
           <View className="border-border bg-muted/40 rounded-md border p-3">
             <Text className="font-mono text-xs">status: {diagnostics.status}</Text>
             <Text className="font-mono text-xs">
@@ -237,9 +237,11 @@ export default function SettingsScreen() {
             )}
           </View>
           <Text variant="muted" className="mt-2">
-            {showEmulatorTrustCa
-              ? 'Capability matrix: HTTP capture yes; Chrome HTTPS needs System CA (`npm run android:trust-ca` on this emulator); pinned apps need external Frida/LSPosed unpin and may stay tunnel-only. SOCKS is TCP-only (`quicForcedToTcp`) so Chrome QUIC falls back to TCP HTTPS.'
-              : 'Capability matrix: HTTP capture yes; Chrome ignores User CAs on Android 7+; pinned apps need external Frida/LSPosed unpin and may stay tunnel-only. SOCKS is TCP-only (`quicForcedToTcp`) so Chrome QUIC falls back to TCP HTTPS.'}
+            {Platform.OS === 'android'
+              ? showEmulatorTrustCa
+                ? 'Capability matrix: HTTP capture yes; Chrome HTTPS needs System CA (`npm run android:trust-ca` on this emulator); pinned apps need external Frida/LSPosed unpin and may stay tunnel-only. QUIC is not decrypted (`quicDecrypt: false`); TCP HTTPS works when Chrome falls back.'
+                : 'Capability matrix: HTTP capture yes; Chrome ignores User CAs on Android 7+; pinned apps need external Frida/LSPosed unpin and may stay tunnel-only. QUIC is not decrypted (`quicDecrypt: false`); TCP HTTPS works when Chrome falls back.'
+              : 'Capability matrix: HTTP capture yes; HTTPS MITM needs trusted Lenswire CA + decrypt on; pinned apps stay tunnel-only. Full TUN → hev → SOCKS → MITM (no system HTTP proxy). QUIC is not decrypted.'}
           </Text>
         </Field>
 

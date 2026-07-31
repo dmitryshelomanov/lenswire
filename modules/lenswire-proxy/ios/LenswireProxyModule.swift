@@ -28,15 +28,13 @@ public class LenswireProxyModule: Module {
     }
 
     Function("getDiagnostics") { () -> [String: Any] in
-      [
-        "status": VPNManager.shared.getStatus(),
-        "lastError": NSNull(),
-        "runtime": [
-          "mode": "packet_tunnel",
-          "proxyPort": Int(LenswireShared.proxyPort),
-          "recordingPaused": LenswireShared.recordingPaused,
-        ],
-      ]
+      // Prefer App Group snapshot written by the Packet Tunnel; fall back to local status.
+      let snap = ProxyRuntimeStore.snapshot()
+      var result = snap
+      if (result["status"] as? String) == "stopped" || result["status"] == nil {
+        result["status"] = VPNManager.shared.getStatus()
+      }
+      return result
     }
 
     AsyncFunction("startCapture") { (promise: Promise) in

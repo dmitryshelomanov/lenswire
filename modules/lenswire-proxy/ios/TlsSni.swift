@@ -1,4 +1,5 @@
 import Foundation
+import Darwin
 
 enum TlsSni {
   struct ClientHelloMeta {
@@ -18,6 +19,56 @@ enum TlsSni {
     let sni = extractSniHostname(from: data)
     let meta = extractClientHelloMeta(from: data)
     return PeekResult(bytes: data, sniHostname: sni, meta: meta)
+  }
+
+  /// Reads the first TLS record(s) from a blocking socket fd (SOCKS bridge).
+  static func peekClientHello(from fd: Int32, maxBytes: Int = 16 * 1024) -> PeekResult {
+    var out = Data()
+    out.reserveCapacity(min(maxBytes, 2048))
+    while out.count < maxBytes {
+      var header = [UInt8](repeating: 0, count: 5)
+      let headerRead = readExact(fd, into: &header, count: 5)
+      if headerRead < 5 {
+        if headerRead > 0 { out.append(contentsOf: header.prefix(headerRead)) }
+        break
+      }
+      out.append(contentsOf: header)
+      let contentType = Int(header[0])
+      let versionMajor = Int(header[1])
+      let length = (Int(header[3]) << 8) | Int(header[4])
+      if contentType != 0x16 || versionMajor < 3 || length <= 0 || length > 16 * 1024 {
+        let take = min(max(length, 0), maxBytes - out.count)
+        var body = [UInt8](repeating: 0, count: take)
+        let bodyRead = readExact(fd, into: &body, count: take)
+        if bodyRead > 0 { out.append(contentsOf: body.prefix(bodyRead)) }
+        break
+      }
+      var body = [UInt8](repeating: 0, count: length)
+      let bodyRead = readExact(fd, into: &body, count: length)
+      if bodyRead > 0 { out.append(contentsOf: body.prefix(bodyRead)) }
+      if bodyRead < length { break }
+      let meta = extractClientHelloMeta(from: out)
+      let sni = extractSniHostname(from: out)
+      if sni != nil || hasCompleteHandshakeMessage(out) {
+        return PeekResult(bytes: out, sniHostname: sni, meta: meta)
+      }
+    }
+    let meta = extractClientHelloMeta(from: out)
+    return PeekResult(bytes: out, sniHostname: extractSniHostname(from: out), meta: meta)
+  }
+
+  private static func readExact(_ fd: Int32, into buffer: inout [UInt8], count: Int) -> Int {
+    guard count > 0 else { return 0 }
+    var got = 0
+    while got < count {
+      let n = buffer.withUnsafeMutableBytes { raw -> Int in
+        guard let base = raw.bindMemory(to: UInt8.self).baseAddress else { return -1 }
+        return Darwin.recv(fd, base + got, count - got, 0)
+      }
+      if n <= 0 { return got }
+      got += n
+    }
+    return got
   }
 
   static func extractClientHelloMeta(from data: Data) -> ClientHelloMeta? {
