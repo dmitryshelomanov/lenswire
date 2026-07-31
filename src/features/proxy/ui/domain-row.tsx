@@ -1,5 +1,6 @@
 import { router } from 'expo-router';
 import { ChevronRight, Star } from 'lucide-react-native';
+import * as React from 'react';
 import { Pressable, View } from 'react-native';
 
 import type { DomainGroup } from '@/features/proxy/lib/domain-group';
@@ -15,12 +16,9 @@ type Props = {
   onTogglePin: () => void;
 };
 
-export function DomainRow({ group, pinned, onTogglePin }: Props) {
+function DomainRowImpl({ group, pinned, onTogglePin }: Props) {
   return (
-    <Pressable
-      className={cn('border-border active:bg-accent/40 border-b px-4 py-3 sm:px-6')}
-      onPress={() => router.push(`/domain/${encodeURIComponent(group.host)}`)}
-    >
+    <View className={cn('border-border border-b px-4 py-3 sm:px-6')}>
       <View className="flex-row items-center justify-between gap-2">
         <View className="min-w-0 flex-1 flex-row items-center gap-2">
           <Pressable
@@ -36,14 +34,22 @@ export function DomainRow({ group, pinned, onTogglePin }: Props) {
               size={16}
             />
           </Pressable>
-          <Text numberOfLines={1} className="shrink font-mono text-sm">
-            {group.host}
-          </Text>
+          <Pressable
+            className="min-w-0 flex-1 flex-row items-center gap-2 active:opacity-80"
+            onPress={() => router.push(`/domain/${encodeURIComponent(group.host)}`)}
+          >
+            <Text numberOfLines={1} className="shrink font-mono text-sm">
+              {group.host}
+            </Text>
+            <Icon as={ChevronRight} className="ml-auto text-muted-foreground" size={16} />
+          </Pressable>
         </View>
-        <Icon as={ChevronRight} className="text-muted-foreground" size={16} />
       </View>
 
-      <View className="mt-1.5 flex-row items-center gap-2 pl-6">
+      <Pressable
+        className="mt-1.5 flex-row items-center gap-2 pl-6 active:opacity-80"
+        onPress={() => router.push(`/domain/${encodeURIComponent(group.host)}`)}
+      >
         <Badge
           label={group.clientName}
           variant={
@@ -58,14 +64,22 @@ export function DomainRow({ group, pinned, onTogglePin }: Props) {
         {group.errorCount > 0 ? (
           <Badge label={`${group.errorCount} err`} variant="danger" className="shrink-0" />
         ) : null}
-        {group.tunnelOnly ? <Badge label="tunnel" variant="outline" className="shrink-0" /> : null}
+        {group.hasBypass ? (
+          <Badge label="bypassed" variant="outline" className="shrink-0" />
+        ) : group.hasSkipped ? (
+          <Badge label="skipped" variant="outline" className="shrink-0" />
+        ) : group.tunnelOnly ? (
+          <Badge label="tunnel" variant="outline" className="shrink-0" />
+        ) : null}
         <Text variant="muted" className="ml-auto font-mono text-xs">
           {formatRelativeTime(group.lastSeenAt)}
         </Text>
         <Text variant="muted" className="font-mono text-xs">
           {group.totalRequests}
         </Text>
-      </View>
-    </Pressable>
+      </Pressable>
+    </View>
   );
 }
+
+export const DomainRow = React.memo(DomainRowImpl);

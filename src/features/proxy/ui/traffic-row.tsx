@@ -1,4 +1,5 @@
 import { router } from 'expo-router';
+import * as React from 'react';
 import { Pressable, View } from 'react-native';
 
 import { methodBadgeVariant, statusBadgeVariant } from '@/entities/traffic/badges';
@@ -18,7 +19,7 @@ type Props = {
   collapsedCount?: number;
 };
 
-export function TrafficRow({ entry, collapsedCount = 1 }: Props) {
+function TrafficRowImpl({ entry, collapsedCount = 1 }: Props) {
   const time = new Date(entry.startedAt).toLocaleTimeString(undefined, {
     hour: '2-digit',
     minute: '2-digit',
@@ -90,3 +91,5 @@ export function TrafficRow({ entry, collapsedCount = 1 }: Props) {
     </Pressable>
   );
 }
+
+export const TrafficRow = React.memo(TrafficRowImpl);

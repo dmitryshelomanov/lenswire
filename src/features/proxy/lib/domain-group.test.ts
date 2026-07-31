@@ -28,6 +28,8 @@ function entry(partial: Partial<TrafficEntry> & Pick<TrafficEntry, 'host'>): Tra
       totalMs: 0,
     },
     captureMode: partial.captureMode ?? 'mitm',
+    reasonCode: partial.reasonCode,
+    bypassCause: partial.bypassCause,
     clientLabel: partial.clientLabel,
     clientAttributionKind: partial.clientAttributionKind,
   };
@@ -78,12 +80,16 @@ describe('groupByDomain', () => {
       lastSeenAt: 500,
       errorCount: 1,
       tunnelOnly: true,
+      hasBypass: false,
+      hasSkipped: false,
     });
     expect(groups[1]).toMatchObject({
       host: 'cdn.example.com',
       totalRequests: 1,
       errorCount: 1,
       tunnelOnly: false,
+      hasBypass: false,
+      hasSkipped: false,
     });
   });
 
@@ -93,6 +99,80 @@ describe('groupByDomain', () => {
       entry({ id: 'b', host: 'x.test', captureMode: 'mitm' }),
     ]);
     expect(groups[0]?.tunnelOnly).toBe(false);
+  });
+
+  it('sets hasBypass from mitm_bypassed and session-bypass reasons', () => {
+    const bypassed = groupByDomain([
+      entry({
+        id: 'a',
+        host: 'pin.test',
+        captureMode: 'tunnel',
+        reasonCode: 'mitm_bypassed',
+        bypassCause: 'mitm_handshake_failed',
+      }),
+    ]);
+    expect(bypassed[0]).toMatchObject({ hasBypass: true, tunnelOnly: true });
+
+    const handshake = groupByDomain([
+      entry({
+        id: 'b',
+        host: 'fail.test',
+        captureMode: 'tunnel',
+        reasonCode: 'mitm_handshake_failed',
+      }),
+    ]);
+    expect(handshake[0]?.hasBypass).toBe(true);
+
+    const causeOnly = groupByDomain([
+      entry({
+        id: 'c',
+        host: 'cause.test',
+        captureMode: 'tunnel',
+        bypassCause: 'mitm_unsupported',
+      }),
+    ]);
+    expect(causeOnly[0]?.hasBypass).toBe(true);
+  });
+
+  it('sets hasSkipped from alpn_no_http11', () => {
+    const groups = groupByDomain([
+      entry({
+        id: 'a',
+        host: 'h2.test',
+        captureMode: 'tunnel',
+        reasonCode: 'alpn_no_http11',
+      }),
+      entry({
+        id: 'b',
+        host: 'h2.test',
+        captureMode: 'tunnel',
+        reasonCode: 'passthrough',
+      }),
+    ]);
+    expect(groups[0]).toMatchObject({
+      hasSkipped: true,
+      hasBypass: false,
+      tunnelOnly: true,
+    });
+  });
+
+  it('accumulates bypass and skip flags across entries', () => {
+    const groups = groupByDomain([
+      entry({ id: 'a', host: 'mixed.test', captureMode: 'tunnel' }),
+      entry({
+        id: 'b',
+        host: 'mixed.test',
+        captureMode: 'tunnel',
+        reasonCode: 'alpn_no_http11',
+      }),
+      entry({
+        id: 'c',
+        host: 'mixed.test',
+        captureMode: 'tunnel',
+        reasonCode: 'mitm_bypassed',
+      }),
+    ]);
+    expect(groups[0]).toMatchObject({ hasSkipped: true, hasBypass: true, tunnelOnly: true });
   });
 });
 

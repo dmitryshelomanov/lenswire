@@ -23,6 +23,7 @@ export function TrafficToolbar({ showControls = true, showFilters = true }: Prop
   const { clear } = useProxyEntries();
   const { filters, setFilters } = useProxyFilters();
   const listening = status === 'listening';
+  const connecting = status === 'connecting';
   const showToolbar = showControls || showFilters;
 
   if (!showToolbar) return null;
@@ -38,11 +39,12 @@ export function TrafficToolbar({ showControls = true, showFilters = true }: Prop
       {showControls ? (
         <View className="flex-row flex-wrap items-center gap-2">
           <Button
-            variant={listening ? 'destructive' : 'default'}
+            variant={listening || connecting ? 'destructive' : 'default'}
             size="sm"
+            disabled={connecting}
             onPress={() => void (listening ? stop() : start())}
           >
-            <Text>{listening ? 'Stop' : 'Start'}</Text>
+            <Text>{connecting ? 'Connecting…' : listening ? 'Stop' : 'Start'}</Text>
           </Button>
 
           <Button variant="outline" size="sm" disabled={!listening} onPress={toggleRecording}>
@@ -59,15 +61,13 @@ export function TrafficToolbar({ showControls = true, showFilters = true }: Prop
 
       {showFilters ? (
         <>
-          <View className="relative">
-            <View className="pointer-events-none absolute top-0 bottom-0 left-3 z-10 justify-center">
-              <Icon as={Search} className="text-muted-foreground" size={16} />
-            </View>
+          <View className="flex-row items-center gap-2 rounded-md border border-input bg-background px-3 min-h-10 shadow-sm shadow-black/5">
+            <Icon as={Search} className="shrink-0 text-muted-foreground" size={16} />
             <Input
               value={filters.query}
               onChangeText={(query) => setFilters({ query })}
               placeholder="Filter by host, path, method, status…"
-              className="pl-9"
+              className="min-h-0 w-auto min-w-0 flex-1 border-0 bg-transparent px-0 py-0 shadow-none"
               autoCapitalize="none"
               autoCorrect={false}
               clearButtonMode="while-editing"

@@ -1,5 +1,6 @@
 import { Radio } from 'lucide-react-native';
-import { View } from 'react-native';
+import { ScrollView, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import {
   androidStoppedSetupLines,
@@ -19,10 +20,21 @@ export function TrafficEmptyStopped({
   showEmulatorTrustCa: boolean;
   onStart: () => void;
 }) {
+  const insets = useSafeAreaInsets();
   const setupLines = isAndroid ? androidStoppedSetupLines(showEmulatorTrustCa) : IOS_SETUP_LINES;
   return (
-    <View className="flex-1 items-center justify-center px-6 py-12">
-      <View className="w-full max-w-lg">
+    <ScrollView
+      className="flex-1"
+      contentContainerStyle={{
+        flexGrow: 1,
+        justifyContent: 'center',
+        paddingHorizontal: 24,
+        paddingTop: 48,
+        paddingBottom: Math.max(insets.bottom, 16) + 24,
+      }}
+      keyboardShouldPersistTaps="handled"
+    >
+      <View className="w-full max-w-lg self-center">
         <View className="items-center">
           <View className="bg-muted mb-6 rounded-full p-4">
             <Icon as={Radio} className="text-muted-foreground" size={28} />
@@ -49,7 +61,7 @@ export function TrafficEmptyStopped({
           </Button>
         </View>
       </View>
-    </View>
+    </ScrollView>
   );
 }
 

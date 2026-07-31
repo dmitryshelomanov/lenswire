@@ -1,5 +1,6 @@
 import { Activity } from 'lucide-react-native';
-import { View } from 'react-native';
+import { ScrollView, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { androidWaitingSummary } from '@/features/proxy/lib/android-ca-guidance';
 import { Icon } from '@/shared/ui/icon';
@@ -14,8 +15,19 @@ export function TrafficEmptyWaiting({
   showEmulatorTrustCa: boolean;
   recording: boolean;
 }) {
+  const insets = useSafeAreaInsets();
   return (
-    <View className="flex-1 items-center justify-center px-6 py-12">
+    <ScrollView
+      className="flex-1"
+      contentContainerStyle={{
+        flexGrow: 1,
+        justifyContent: 'center',
+        alignItems: 'center',
+        paddingHorizontal: 24,
+        paddingTop: 48,
+        paddingBottom: Math.max(insets.bottom, 16) + 24,
+      }}
+    >
       <View className="bg-muted mb-6 rounded-full p-4">
         <Icon as={Activity} className="text-muted-foreground" size={28} />
       </View>
@@ -25,6 +37,6 @@ export function TrafficEmptyWaiting({
           ? androidWaitingSummary(recording, showEmulatorTrustCa)
           : `Waiting for requests. Recording is ${recording ? 'on' : 'paused'}. Open Safari or any app.`}
       </Text>
-    </View>
+    </ScrollView>
   );
 }

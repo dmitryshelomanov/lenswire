@@ -9,7 +9,27 @@ export type DomainGroup = {
   lastSeenAt: number;
   errorCount: number;
   tunnelOnly: boolean;
+  hasBypass: boolean;
+  hasSkipped: boolean;
 };
+
+const SESSION_BYPASS_REASONS = new Set([
+  'mitm_bypassed',
+  'mitm_handshake_failed',
+  'mitm_unsupported',
+  'mitm_no_request',
+  'mitm_websocket',
+]);
+
+export function entrySignalsBypass(entry: TrafficEntry): boolean {
+  if (entry.bypassCause) return true;
+  const reason = entry.reasonCode;
+  return reason != null && SESSION_BYPASS_REASONS.has(reason);
+}
+
+export function entrySignalsSkipped(entry: TrafficEntry): boolean {
+  return entry.reasonCode === 'alpn_no_http11';
+}
 
 type Acc = {
   group: DomainGroup;
@@ -27,6 +47,8 @@ export function groupByDomain(entries: TrafficEntry[]): DomainGroup[] {
     const counterKey = `${kind}:${name}`;
     const isError = entry.status >= 400;
     const isTunnel = entry.captureMode === 'tunnel';
+    const isBypass = entrySignalsBypass(entry);
+    const isSkipped = entrySignalsSkipped(entry);
     const existing = byHost.get(entry.host);
 
     if (existing) {
@@ -36,6 +58,8 @@ export function groupByDomain(entries: TrafficEntry[]): DomainGroup[] {
       }
       if (isError) existing.group.errorCount += 1;
       if (!isTunnel) existing.group.tunnelOnly = false;
+      if (isBypass) existing.group.hasBypass = true;
+      if (isSkipped) existing.group.hasSkipped = true;
       const prev = existing.counts.get(counterKey) ?? 0;
       const nextCount = prev + 1;
       existing.counts.set(counterKey, nextCount);
@@ -55,6 +79,8 @@ export function groupByDomain(entries: TrafficEntry[]): DomainGroup[] {
       lastSeenAt: entry.startedAt,
       errorCount: isError ? 1 : 0,
       tunnelOnly: isTunnel,
+      hasBypass: isBypass,
+      hasSkipped: isSkipped,
     };
     const counts = new Map<string, number>();
     counts.set(counterKey, 1);

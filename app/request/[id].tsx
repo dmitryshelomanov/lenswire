@@ -19,7 +19,7 @@ import { Tabs } from '@/shared/ui/tabs';
 
 export default function RequestDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { getEntry, loadFullEntry } = useProxyEntries();
+  const { entries, getEntry, loadFullEntry } = useProxyEntries();
   const [entry, setEntry] = React.useState<TrafficEntry | null>(null);
   const [loading, setLoading] = React.useState(Boolean(id));
   const [tab, setTab] = React.useState<DetailTab>('overview');
@@ -41,6 +41,30 @@ export default function RequestDetailScreen() {
       cancelled = true;
     };
   }, [id, getEntry, loadFullEntry]);
+
+  // Refresh detail when capture list updates the same id (late body/timing).
+  React.useEffect(() => {
+    if (!id || loading) return;
+    const fromList = getEntry(id);
+    if (!fromList) return;
+    setEntry((prev) => {
+      if (!prev) return fromList;
+      if (
+        prev.status === fromList.status &&
+        prev.timing?.totalMs === fromList.timing?.totalMs &&
+        prev.responseBody?.size === fromList.responseBody?.size &&
+        prev.requestBody?.size === fromList.requestBody?.size &&
+        prev.httpPayloadAvailable === fromList.httpPayloadAvailable
+      ) {
+        return prev;
+      }
+      // Reload full entry when summary fields change.
+      void loadFullEntry(id).then((full) => {
+        if (full) setEntry(full);
+      });
+      return prev;
+    });
+  }, [id, entries, getEntry, loadFullEntry, loading]);
 
   if (loading) {
     return (

@@ -130,7 +130,13 @@ export default function DomainScreen() {
             {summary.errorCount > 0 ? (
               <Badge label={`${summary.errorCount} err`} variant="danger" />
             ) : null}
-            {summary.tunnelOnly ? <Badge label="tunnel" variant="outline" /> : null}
+            {summary.hasBypass ? (
+              <Badge label="bypassed" variant="outline" />
+            ) : summary.hasSkipped ? (
+              <Badge label="skipped" variant="outline" />
+            ) : summary.tunnelOnly ? (
+              <Badge label="tunnel" variant="outline" />
+            ) : null}
             <Text variant="muted" className="font-mono text-xs">
               {formatRelativeTime(summary.lastSeenAt)}
             </Text>
@@ -176,6 +182,10 @@ export default function DomainScreen() {
             <TrafficRow entry={item.entry} collapsedCount={item.collapsedCount} />
           )}
           className="flex-1"
+          initialNumToRender={20}
+          windowSize={8}
+          maxToRenderPerBatch={16}
+          removeClippedSubviews
         />
       )}
     </SafeAreaView>

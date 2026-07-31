@@ -39,8 +39,8 @@ export function MoreFilters({
       <Pressable
         onPress={() => setOpen(true)}
         className={cn(
-          // Match `Input` height (`h-10`) for consistent toolbar row.
-          'flex-row items-center gap-1.5 rounded-md border px-3 h-10',
+          // Match `Input` min height for consistent toolbar row.
+          'flex-row items-center gap-1.5 rounded-md border px-3 min-h-10',
           active ? 'border-foreground bg-secondary' : 'border-border bg-background',
         )}
       >

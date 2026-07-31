@@ -3,14 +3,7 @@ import { grpcVariant, parseGrpcPath } from './grpc';
 import { resourceTypeOf } from './resource-type';
 import type { ResourceKind, TrafficEntry } from './types';
 
-const STATIC_RESOURCE_LABELS = new Set<ResourceKind>([
-  'js',
-  'css',
-  'font',
-  'img',
-  'media',
-  'doc',
-]);
+const STATIC_RESOURCE_LABELS = new Set<ResourceKind>(['js', 'css', 'font', 'img', 'media', 'doc']);
 
 function staticResourceLabel(entry: TrafficEntry): string | null {
   const kind = resourceTypeOf(entry);

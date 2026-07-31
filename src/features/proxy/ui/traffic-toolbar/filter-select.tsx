@@ -31,18 +31,18 @@ export function FilterSelect({
       <Pressable
         onPress={() => setOpen(true)}
         className={cn(
-          // Match `Input` height (`h-10`) on the home toolbar row.
-          'flex-row items-center gap-1.5 rounded-md border px-3 h-10',
+          // Match `Input` min height on the home toolbar row.
+          'max-w-[45%] shrink flex-row items-center gap-1.5 rounded-md border px-3 min-h-10',
           active ? 'border-foreground bg-secondary' : 'border-border bg-background',
         )}
       >
-        <Text variant="small" className="text-muted-foreground">
+        <Text variant="small" className="shrink-0 text-muted-foreground">
           {title}
         </Text>
-        <Text variant="small" className="text-foreground">
+        <Text variant="small" className="min-w-0 shrink text-foreground" numberOfLines={1}>
           {valueLabel}
         </Text>
-        <Icon as={ChevronDown} size={12} className="text-muted-foreground" />
+        <Icon as={ChevronDown} size={12} className="shrink-0 text-muted-foreground" />
       </Pressable>
 
       <Modal visible={open} transparent animationType="fade" onRequestClose={() => setOpen(false)}>
