@@ -1,12 +1,9 @@
 import type { Metadata } from 'next';
 import { Fraunces, Outfit } from 'next/font/google';
 import { BASE_PATH, withBasePath } from '@/lib/basePath';
+import { faqs } from '@/lib/content';
+import { SITE_DESCRIPTION, SITE_TITLE, SITE_URL } from '@/lib/site';
 import './globals.css';
-
-const SITE_URL = 'https://dmitryshelomanov.github.io/lenswire';
-const SITE_TITLE = 'Lenswire — Local HTTP(S) inspector';
-const SITE_DESCRIPTION =
-  'Capture, decrypt, and debug HTTP(S) traffic on iOS and Android — VPN MITM, overrides, and HAR export. On-device.';
 
 const outfit = Outfit({
   subsets: ['latin'],
@@ -62,7 +59,7 @@ export const metadata: Metadata = {
   },
 };
 
-const jsonLd = {
+const softwareJsonLd = {
   '@context': 'https://schema.org',
   '@type': 'SoftwareApplication',
   name: 'Lenswire',
@@ -79,6 +76,19 @@ const jsonLd = {
   codeRepository: 'https://github.com/dmitryshelomanov/lenswire',
 };
 
+const faqJsonLd = {
+  '@context': 'https://schema.org',
+  '@type': 'FAQPage',
+  mainEntity: faqs.map((item) => ({
+    '@type': 'Question',
+    name: item.q,
+    acceptedAnswer: {
+      '@type': 'Answer',
+      text: item.a,
+    },
+  })),
+};
+
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" className={`${outfit.variable} ${fraunces.variable}`}>
@@ -87,7 +97,11 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <link rel="apple-touch-icon" href={withBasePath('/icon.png')} />
         <script
           type="application/ld+json"
-          dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+          dangerouslySetInnerHTML={{ __html: JSON.stringify(softwareJsonLd) }}
+        />
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{ __html: JSON.stringify(faqJsonLd) }}
         />
       </head>
       <body className="font-sans">{children}</body>

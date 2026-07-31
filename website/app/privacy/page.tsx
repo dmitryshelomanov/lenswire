@@ -6,6 +6,19 @@ import { SiteHeader } from '@/components/SiteHeader';
 export const metadata: Metadata = {
   title: 'Privacy Policy',
   description: 'Privacy Policy for the Lenswire HTTP(S) inspector app.',
+  alternates: {
+    canonical: '/privacy/',
+  },
+  openGraph: {
+    title: 'Privacy Policy · Lenswire',
+    description: 'Privacy Policy for the Lenswire HTTP(S) inspector app.',
+    url: '/privacy/',
+  },
+  twitter: {
+    card: 'summary',
+    title: 'Privacy Policy · Lenswire',
+    description: 'Privacy Policy for the Lenswire HTTP(S) inspector app.',
+  },
 };
 
 export default function PrivacyPage() {
@@ -90,8 +103,8 @@ export default function PrivacyPage() {
 
           <h3 className="!mt-8 text-xl font-semibold tracking-tight">Local settings</h3>
           <p>
-            Preferences (listen host/port, HTTPS decryption toggle, override rules, and similar) are
-            stored locally on your device. They are not synced to Lenswire servers.
+            Preferences (HTTPS decryption toggle, override rules, and similar) are stored locally on
+            your device. They are not synced to Lenswire servers.
           </p>
 
           <h3 className="!mt-8 text-xl font-semibold tracking-tight">Export / share</h3>

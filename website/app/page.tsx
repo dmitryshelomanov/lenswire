@@ -1,11 +1,21 @@
 import { CompareCell } from '@/components/CompareCell';
 import { DeviceFrame } from '@/components/DeviceFrame';
 import { FeatureIcon } from '@/components/FeatureIcon';
+import { HeroVideo } from '@/components/HeroVideo';
 import { SiteFooter } from '@/components/SiteFooter';
 import { SiteHeader } from '@/components/SiteHeader';
 import { Spotlight } from '@/components/Spotlight';
 import { withBasePath } from '@/lib/basePath';
-import { comparison, faqs, features, howTeaser, screens, spotlights } from '@/lib/content';
+import {
+  comparison,
+  faqs,
+  features,
+  getStarted,
+  howTeaser,
+  REPO_URL,
+  screens,
+  spotlights,
+} from '@/lib/content';
 import Link from 'next/link';
 
 export default function HomePage() {
@@ -37,36 +47,23 @@ export default function HomePage() {
               </p>
               <div className="mt-9 flex flex-wrap justify-center gap-3 lg:justify-start">
                 <a
-                  href="https://github.com/dmitryshelomanov/lenswire"
+                  href={getStarted.primaryHref}
                   className="inline-flex h-12 items-center rounded-full bg-white px-6 text-base font-medium text-ink no-underline transition hover:bg-white/90"
                 >
-                  View on GitHub
+                  {getStarted.primaryLabel}
                 </a>
                 <a
-                  href="#screens"
+                  href="#get-started"
                   className="inline-flex h-12 items-center rounded-full border border-white/40 bg-white/10 px-6 text-base font-medium text-white no-underline backdrop-blur transition hover:bg-white/20"
                 >
-                  See screens
+                  Get the app
                 </a>
               </div>
               <p className="mt-5 text-sm text-white/60">iOS · Android · on-device · MIT</p>
             </div>
 
             <div className="flex justify-center lg:justify-end">
-              <div className="w-full max-w-[18rem] overflow-hidden rounded-[1.75rem] shadow-[0_32px_64px_-20px_rgba(0,0,0,0.45)] ring-1 ring-white/25 sm:max-w-[20rem] lg:max-w-[22rem]">
-                <video
-                  className="block h-auto w-full bg-black"
-                  autoPlay
-                  muted
-                  loop
-                  playsInline
-                  preload="metadata"
-                  poster={withBasePath('/screenshots/traffic.jpg')}
-                >
-                  <source src={withBasePath('/demo.mp4')} type="video/mp4" />
-                  <source src={withBasePath('/demo.webm')} type="video/webm" />
-                </video>
-              </div>
+              <HeroVideo />
             </div>
           </div>
         </section>
@@ -109,6 +106,28 @@ export default function HomePage() {
                 </li>
               ))}
             </ul>
+          </div>
+        </section>
+
+        {/* Get started */}
+        <section id="get-started" className="mx-auto max-w-5xl px-5 py-20 sm:py-28">
+          <div className="mx-auto max-w-3xl text-center">
+            <h2 className="font-display text-5xl tracking-tight sm:text-6xl">{getStarted.title}</h2>
+            <p className="mt-6 text-xl leading-relaxed text-muted sm:text-2xl">{getStarted.lead}</p>
+            <div className="mt-9 flex flex-wrap justify-center gap-3">
+              <a
+                href={getStarted.primaryHref}
+                className="inline-flex h-12 items-center rounded-full bg-ink px-6 text-base font-medium text-white no-underline transition hover:bg-navy"
+              >
+                {getStarted.primaryLabel}
+              </a>
+              <a
+                href={getStarted.secondaryHref}
+                className="inline-flex h-12 items-center rounded-full border border-line bg-paper px-6 text-base font-medium text-ink no-underline transition hover:bg-wash"
+              >
+                {getStarted.secondaryLabel}
+              </a>
+            </div>
           </div>
         </section>
 
@@ -257,10 +276,16 @@ export default function HomePage() {
             <p className="mt-4 max-w-xl text-lg leading-relaxed text-muted sm:text-xl">
               MIT licensed, no account, no cloud. Capture and decrypt stay on your device.
             </p>
-            <div className="mt-8">
+            <div className="mt-8 flex flex-wrap gap-3">
               <a
-                href="https://github.com/dmitryshelomanov/lenswire"
+                href={getStarted.primaryHref}
                 className="inline-flex h-12 items-center rounded-full bg-ink px-6 text-base font-medium text-white no-underline transition hover:bg-navy"
+              >
+                {getStarted.primaryLabel}
+              </a>
+              <a
+                href={REPO_URL}
+                className="inline-flex h-12 items-center rounded-full border border-line bg-paper px-6 text-base font-medium text-ink no-underline transition hover:bg-wash"
               >
                 View on GitHub
               </a>
