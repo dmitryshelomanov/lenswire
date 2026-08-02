@@ -28,7 +28,7 @@ export default function HomePage() {
           <div className="relative mx-auto grid max-w-6xl items-center gap-10 px-5 py-20 lg:grid-cols-2 lg:gap-16 lg:py-28">
             <div className="text-center lg:text-left">
               <img
-                src={withBasePath('/favicon.png')}
+                src={withBasePath('/icon.png')}
                 alt=""
                 width={64}
                 height={64}

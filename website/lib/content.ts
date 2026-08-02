@@ -27,6 +27,12 @@ export const features = [
 
 export const screens = [
   {
+    src: '/screenshots/cover.jpg',
+    alt: 'Lenswire Play Store cover with app icon',
+    title: 'Lenswire',
+    body: 'Local HTTP(S) inspector — capture, decrypt, and override on device.',
+  },
+  {
     src: '/screenshots/traffic.jpg',
     alt: 'Lenswire traffic list with domain groups',
     title: 'Traffic',

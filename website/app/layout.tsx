@@ -44,7 +44,7 @@ export const metadata: Metadata = {
     description: SITE_DESCRIPTION,
     images: [
       {
-        url: '/og.png?v=2',
+        url: '/og.png?v=3',
         width: 1200,
         height: 630,
         alt: 'Lenswire — Local HTTP(S) inspector',
@@ -55,7 +55,7 @@ export const metadata: Metadata = {
     card: 'summary_large_image',
     title: 'Lenswire',
     description: SITE_DESCRIPTION,
-    images: ['/og.png?v=2'],
+    images: ['/og.png?v=3'],
   },
 };
 
@@ -65,7 +65,7 @@ const softwareJsonLd = {
   name: 'Lenswire',
   description: SITE_DESCRIPTION,
   url: SITE_URL,
-  image: `${SITE_URL}/og.png?v=2`,
+  image: `${SITE_URL}/og.png?v=3`,
   applicationCategory: 'DeveloperApplication',
   operatingSystem: 'iOS, Android',
   offers: {

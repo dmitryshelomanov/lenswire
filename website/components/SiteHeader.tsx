@@ -45,7 +45,7 @@ export function SiteHeader() {
           onClick={() => setMenuOpen(false)}
         >
           <img
-            src={withBasePath('/favicon.png')}
+            src={withBasePath('/icon.png')}
             alt=""
             width={32}
             height={32}
