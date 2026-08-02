@@ -7,7 +7,12 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAndroidCaContext } from '@/features/proxy/hooks/use-android-ca-context';
 import { useOverrides } from '@/features/proxy/hooks/use-overrides';
 import { androidChromeWarning } from '@/features/proxy/lib/android-ca-guidance';
+import {
+  CAPTURE_STATUS_ITEMS,
+  CAPTURE_STATUSES_INTRO,
+} from '@/features/proxy/lib/capture-status-copy';
 import { useProxySettings, useProxyStatus } from '@/features/proxy/store';
+import { CaptureStatusesIntro } from '@/features/proxy/ui/capture-statuses-intro';
 import { ProbeTypeModal } from '@/features/proxy/ui/traffic-toolbar/probe-type-modal';
 import { type ThemePreference, useThemeStore } from '@/features/theme/store';
 import { getDiagnostics } from '@/shared/api/native-proxy';
@@ -33,6 +38,7 @@ export default function SettingsScreen() {
   const { rules } = useOverrides();
   const { showEmulatorTrustCa } = useAndroidCaContext();
   const [probePickerOpen, setProbePickerOpen] = React.useState(false);
+  const [captureIntroOpen, setCaptureIntroOpen] = React.useState(false);
   const listening = status === 'listening';
   const enabledOverrides = rules.filter((rule) => rule.enabled).length;
   const diagnostics = safeDiagnostics();
@@ -191,6 +197,28 @@ export default function SettingsScreen() {
             </View>
           ) : null}
         </Field>
+
+        <Field label="Capture statuses">
+          <Text variant="muted">{CAPTURE_STATUSES_INTRO.lead}</Text>
+          <View className="mt-2 gap-3">
+            {CAPTURE_STATUS_ITEMS.map((item) => (
+              <View key={item.id} className="gap-1">
+                <Badge label={item.label} variant="outline" className="self-start" />
+                <Text variant="muted">{item.detail}</Text>
+              </View>
+            ))}
+          </View>
+          <Button
+            className="mt-3"
+            variant="outline"
+            size="sm"
+            onPress={() => setCaptureIntroOpen(true)}
+          >
+            <Text className="font-medium">Show intro</Text>
+          </Button>
+        </Field>
+
+        <CaptureStatusesIntro open={captureIntroOpen} onClose={() => setCaptureIntroOpen(false)} />
 
         <Field label="Theme">
           <View className="bg-muted/50 border-border flex-row gap-2 rounded-md border p-1">

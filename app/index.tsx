@@ -1,6 +1,6 @@
-import { Search } from 'lucide-react-native';
+import { CircleHelp, Search } from 'lucide-react-native';
 import * as React from 'react';
-import { FlatList, View } from 'react-native';
+import { FlatList, Pressable, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import type { DomainGroup } from '@/features/proxy/lib/domain-group';
@@ -8,6 +8,10 @@ import { groupByDomain } from '@/features/proxy/lib/domain-group';
 import { resolveTrafficEmptyKind } from '@/features/proxy/lib/traffic-empty-kind';
 import { useProxyEntries, useProxyPins, useProxyStatus } from '@/features/proxy/store';
 import { AppHeader } from '@/features/proxy/ui/app-header';
+import {
+  CaptureStatusesIntro,
+  loadCaptureStatusesIntroSeen,
+} from '@/features/proxy/ui/capture-statuses-intro';
 import { DomainRow } from '@/features/proxy/ui/domain-row';
 import { TrafficEmptyState } from '@/features/proxy/ui/traffic-empty';
 import { TrafficToolbar } from '@/features/proxy/ui/traffic-toolbar';
@@ -48,7 +52,22 @@ export default function HomeScreen() {
   const [domainQuery, setDomainQuery] = React.useState('');
   const [clientNameFilter, setClientNameFilter] = React.useState<string>('ALL');
   const [captureFilter, setCaptureFilter] = React.useState<CaptureFilter>('ALL');
+  const [introOpen, setIntroOpen] = React.useState(false);
   const groups = React.useMemo(() => groupByDomain(entries), [entries]);
+
+  React.useEffect(() => {
+    let mounted = true;
+    loadCaptureStatusesIntroSeen()
+      .then((seen) => {
+        if (mounted && !seen) setIntroOpen(true);
+      })
+      .catch(() => {
+        // Ignore storage errors; skip auto-show.
+      });
+    return () => {
+      mounted = false;
+    };
+  }, []);
   const normalizedDomainQuery = domainQuery.trim().toLowerCase();
   const clientNameOptions = React.useMemo(() => {
     const set = new Set(groups.map((g) => g.clientName).filter(Boolean));
@@ -120,8 +139,18 @@ export default function HomeScreen() {
               onPress={() => setCaptureFilter(item.value)}
             />
           ))}
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="What capture statuses mean"
+            onPress={() => setIntroOpen(true)}
+            className="border-border h-8 w-8 items-center justify-center rounded-md border"
+            hitSlop={8}
+          >
+            <Icon as={CircleHelp} className="text-muted-foreground" size={16} />
+          </Pressable>
         </View>
       </View>
+      <CaptureStatusesIntro open={introOpen} onClose={() => setIntroOpen(false)} />
       {emptyKind ? (
         <TrafficEmptyState kind={emptyKind} filteredHint="domain" />
       ) : (
