@@ -1,10 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { OverrideRule } from '@/entities/traffic/types';
-import {
-  matchHeadersKey,
-  rulesShareMatchKey,
-} from '@/features/proxy/lib/override-match-key';
+import { matchHeadersKey, rulesShareMatchKey } from '@/features/proxy/lib/override-match-key';
 
 function baseRule(overrides: Partial<OverrideRule> = {}): OverrideRule {
   return {

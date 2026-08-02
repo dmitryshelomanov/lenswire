@@ -322,9 +322,7 @@ export default function OverrideEditScreen() {
             }}
             placeholder={draft.pathMatch === 'regex' ? '^/api/.*' : '/path'}
           />
-          {pathError ? (
-            <Text className="text-destructive mt-1 text-xs">{pathError}</Text>
-          ) : null}
+          {pathError ? <Text className="text-destructive mt-1 text-xs">{pathError}</Text> : null}
           <Text variant="muted" className="mt-3 text-xs">
             Match headers (optional) — request must include each name; value is a case-insensitive
             substring (empty value = name present).

@@ -21,12 +21,8 @@
       "bundleIdentifier": "com.lenswire.app",
       "buildNumber": "3",
       "entitlements": {
-        "com.apple.security.application-groups": [
-          "group.com.lenswire.app"
-        ],
-        "com.apple.developer.networking.networkextension": [
-          "packet-tunnel-provider"
-        ]
+        "com.apple.security.application-groups": ["group.com.lenswire.app"],
+        "com.apple.developer.networking.networkextension": ["packet-tunnel-provider"]
       },
       "infoPlist": {
         "NSAppTransportSecurity": {
@@ -101,12 +97,8 @@
                   "bundleIdentifier": "com.lenswire.app.network-packet-tunnel",
                   "targetName": "networkpackettunnel",
                   "entitlements": {
-                    "com.apple.developer.networking.networkextension": [
-                      "packet-tunnel-provider"
-                    ],
-                    "com.apple.security.application-groups": [
-                      "group.com.lenswire.app"
-                    ]
+                    "com.apple.developer.networking.networkextension": ["packet-tunnel-provider"],
+                    "com.apple.security.application-groups": ["group.com.lenswire.app"]
                   }
                 }
               ]
