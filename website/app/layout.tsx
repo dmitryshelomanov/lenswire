@@ -31,6 +31,9 @@ export const metadata: Metadata = {
     index: true,
     follow: true,
   },
+  verification: {
+    google: 'vKZ69hIwDMkC0P61Nj4oG3mMXIYkajMfeGZ_RZoIHIE',
+  },
   icons: {
     icon: [{ url: `${BASE_PATH}/favicon.png`, type: 'image/png' }],
     apple: [{ url: `${BASE_PATH}/icon.png`, type: 'image/png' }],
