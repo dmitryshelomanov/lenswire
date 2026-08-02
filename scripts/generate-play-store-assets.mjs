@@ -31,20 +31,29 @@ async function framedFromStore(name) {
 }
 
 async function featureGraphic() {
+  const FG_W = 1024;
+  const FG_H = 500;
+
+  // Icon as rounded squircle PNG with transparent corners (no square “ears”)
+  const iconMask = Buffer.from(`<?xml version="1.0" encoding="UTF-8"?>
+<svg width="320" height="320" xmlns="http://www.w3.org/2000/svg">
+  <rect width="320" height="320" rx="72" ry="72" fill="#fff"/>
+</svg>`);
   const icon = await sharp(path.join(ROOT, 'assets/images/icon.png'))
     .resize(320, 320, { fit: 'contain' })
+    .composite([{ input: await sharp(iconMask).png().toBuffer(), blend: 'dest-in' }])
     .png()
     .toBuffer();
 
   const svg = Buffer.from(`<?xml version="1.0" encoding="UTF-8"?>
-<svg width="1024" height="500" xmlns="http://www.w3.org/2000/svg">
+<svg width="${FG_W}" height="${FG_H}" xmlns="http://www.w3.org/2000/svg">
   <defs>
     <linearGradient id="g" x1="0%" y1="0%" x2="100%" y2="100%">
       <stop offset="0%" stop-color="${FROM}"/>
       <stop offset="100%" stop-color="${TO}"/>
     </linearGradient>
   </defs>
-  <rect width="1024" height="500" fill="url(#g)"/>
+  <rect width="${FG_W}" height="${FG_H}" fill="url(#g)"/>
   <text x="420" y="220" fill="#FFFFFF" font-family="Georgia, 'Times New Roman', Times, serif" font-size="84" font-weight="700" letter-spacing="-2">Lenswire</text>
   <text x="420" y="300" fill="#FFFFFF" font-family="Georgia, 'Times New Roman', Times, serif" font-size="32" opacity="0.92">Local HTTP(S) inspector.</text>
 </svg>`);
