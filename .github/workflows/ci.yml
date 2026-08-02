@@ -26,10 +26,10 @@ jobs:
         run: npm ci
 
       - name: Lint
-        run: npm run lint
+        run: npm run test:lint
 
       - name: Typecheck
-        run: npm run lint:types
+        run: npm run test:tsc
 
       - name: Format check
         run: npm run format:check

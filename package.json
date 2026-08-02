@@ -58,11 +58,11 @@
     "android:trust-ca": "bash scripts/android-trust-ca.sh",
     "check:ios-sync": "bash scripts/check-ios-sync.sh",
     "test": "npm run check:ios-sync && vitest run",
-    "lint": "expo lint",
-    "lint:fix": "expo lint --fix",
-    "lint:types": "tsc --noEmit",
+    "test:lint": "expo lint",
+    "test:tsc": "tsc --noEmit",
     "format": "prettier --write .",
-    "format:check": "prettier --check ."
+    "format:check": "prettier --check .",
+    "lint": "expo lint"
   },
   "dependencies": {
     "@bacons/apple-targets": "^5.0.0",
