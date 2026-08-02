@@ -29,23 +29,6 @@ export type NativeTiming = {
 
 export type NativeOverrideKind = 'request' | 'response';
 
-export type NativeOverrideRule = {
-  id: string;
-  enabled: boolean;
-  kind: NativeOverrideKind;
-  method: string;
-  scheme: string;
-  host: string;
-  path: string;
-  query: string;
-  status: number;
-  contentType: string;
-  /** Extra headers to merge/set; empty value removes that header. */
-  headers: Record<string, string>;
-  bodyText: string;
-  createdAt: number;
-};
-
 export type NativeTrafficEntry = {
   id: string;
   startedAt: number;

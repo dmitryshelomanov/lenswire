@@ -70,10 +70,6 @@ enum X509 {
     derTLV(0x13, Data(string.utf8))
   }
 
-  static func derIA5String(_ string: String) -> Data {
-    derTLV(0x16, Data(string.utf8))
-  }
-
   static func derUTCTime(_ date: Date) -> Data {
     let formatter = DateFormatter()
     formatter.locale = Locale(identifier: "en_US_POSIX")

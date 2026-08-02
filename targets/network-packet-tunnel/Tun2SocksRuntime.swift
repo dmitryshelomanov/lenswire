@@ -74,10 +74,4 @@ final class Tun2SocksRuntime {
     running = false
     lock.unlock()
   }
-
-  func isRunning() -> Bool {
-    lock.lock()
-    defer { lock.unlock() }
-    return running
-  }
 }

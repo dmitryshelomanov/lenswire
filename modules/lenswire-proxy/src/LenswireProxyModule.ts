@@ -18,7 +18,6 @@ declare class LenswireProxyModule extends NativeModule {
   generateCertificate(): Promise<NativeCertificateInfo>;
   getCertificateInfo(): NativeCertificateInfo;
   getCertificateInstallUrl(): string | null;
-  getCertificatePemPath(): string | null;
   getCertificateExportPath(): string | null;
   installCertificate(): Promise<void>;
   getProxyPort(): number;

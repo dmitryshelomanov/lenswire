@@ -87,10 +87,6 @@ public class LenswireProxyModule: Module {
       CertificateManager.shared.mobileConfigInstallUrl()
     }
 
-    Function("getCertificatePemPath") { () -> String? in
-      CertificateManager.shared.pemPath()
-    }
-
     Function("getCertificateExportPath") { () -> String? in
       CertificateManager.shared.exportPath()
     }

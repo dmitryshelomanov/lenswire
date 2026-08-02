@@ -2,7 +2,6 @@ package expo.modules.lenswireproxy
 
 import android.app.Activity
 import android.content.Context
-import android.os.Build
 import expo.modules.kotlin.Promise
 import expo.modules.kotlin.exception.Exceptions
 import expo.modules.kotlin.modules.Module
@@ -27,17 +26,6 @@ class LenswireProxyModule : Module() {
       } else {
         promise.reject("VPN_PERMISSION_DENIED", "VPN permission was denied", null)
       }
-    }
-
-    Function("isSimulator") {
-      Build.FINGERPRINT.contains("generic") ||
-        Build.MODEL.contains("Emulator") ||
-        Build.MODEL.contains("Android SDK") ||
-        Build.MANUFACTURER.contains("Genymotion") ||
-        Build.PRODUCT.contains("sdk") ||
-        Build.PRODUCT.contains("google_sdk") ||
-        Build.HARDWARE.contains("goldfish") ||
-        Build.HARDWARE.contains("ranchu")
     }
 
     Function("getStatus") {
@@ -111,10 +99,6 @@ class LenswireProxyModule : Module() {
 
     Function("getCertificateInstallUrl") {
       null
-    }
-
-    Function("getCertificatePemPath") {
-      CertificateManager.pemPath(context)
     }
 
     Function("getCertificateExportPath") {

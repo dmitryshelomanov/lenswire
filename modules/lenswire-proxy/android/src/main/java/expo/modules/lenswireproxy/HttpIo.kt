@@ -6,7 +6,6 @@ import java.io.InputStream
 import java.io.OutputStream
 import java.net.Socket
 import java.net.SocketException
-import javax.net.ssl.SSLSocket
 
 /** HTTP/1.1 read/write helpers and socket relay for LocalProxyServer. */
 internal object HttpIo {
@@ -49,8 +48,6 @@ internal object HttpIo {
     if (connection.contains("close")) return false
     return true
   }
-
-  fun readHttpMessage(socket: SSLSocket): ByteArray = readHttpMessage(socket.inputStream)
 
   /** Reads one HTTP/1.1 message, optionally starting from already-read [prefix] bytes. */
   fun readHttpMessage(input: InputStream, prefix: ByteArray = ByteArray(0)): ByteArray {

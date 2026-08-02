@@ -12,10 +12,6 @@ final class CertificateManager {
     return CertificateAuthority.shared.info()
   }
 
-  func pemPath() -> String? {
-    CertificateAuthority.shared.pemPath()
-  }
-
   func exportPath() -> String? {
     CertificateAuthority.shared.exportPath()
   }

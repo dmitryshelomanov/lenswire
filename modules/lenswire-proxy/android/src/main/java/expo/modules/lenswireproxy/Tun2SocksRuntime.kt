@@ -47,6 +47,4 @@ class Tun2SocksRuntime(
     thread = null
     running.set(false)
   }
-
-  fun isRunning(): Boolean = running.get()
 }

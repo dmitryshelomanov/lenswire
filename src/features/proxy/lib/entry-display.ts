@@ -120,14 +120,6 @@ function mitmNoRequestHint(entry: TrafficEntry): string {
   return MITM_NO_REQUEST_HINT;
 }
 
-export function isLikelyPinningOrTrustReject(entry: TrafficEntry): boolean {
-  return (
-    entry.reasonCode === 'mitm_handshake_failed' ||
-    entry.reasonCode === 'mitm_bypassed' ||
-    (entry.captureSummary?.toLowerCase().includes('pinning') ?? false)
-  );
-}
-
 export function payloadUnavailableHint(entry: TrafficEntry): string | null {
   if (entry.httpPayloadAvailable === false) {
     const summary =

@@ -144,29 +144,6 @@ object OverrideRules {
     return next to body
   }
 
-  fun toJsonArray(rules: List<Rule>): String {
-    val arr = JSONArray()
-    rules.forEach { rule ->
-      arr.put(
-        JSONObject()
-          .put("id", rule.id)
-          .put("enabled", rule.enabled)
-          .put("kind", rule.kind)
-          .put("method", rule.method)
-          .put("scheme", rule.scheme)
-          .put("host", rule.host)
-          .put("path", rule.path)
-          .put("query", rule.query)
-          .put("status", rule.status)
-          .put("contentType", rule.contentType)
-          .put("headers", headersToJson(rule.headers))
-          .put("bodyText", rule.bodyText)
-          .put("createdAt", rule.createdAt),
-      )
-    }
-    return arr.toString()
-  }
-
   private fun parseHeaders(obj: JSONObject?): Map<String, String> {
     if (obj == null) return emptyMap()
     val out = LinkedHashMap<String, String>()
@@ -178,14 +155,6 @@ object OverrideRules {
       out[name] = obj.optString(key, "")
     }
     return out
-  }
-
-  private fun headersToJson(headers: Map<String, String>): JSONObject {
-    val obj = JSONObject()
-    headers.forEach { (key, value) ->
-      obj.put(key, value)
-    }
-    return obj
   }
 
   /** Merge/set: non-blank value replaces (case-insensitive name); blank value removes. */

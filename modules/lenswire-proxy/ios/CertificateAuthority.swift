@@ -67,18 +67,6 @@ final class CertificateAuthority {
     ]
   }
 
-  func pemPath() -> String? {
-    guard isReady() else { return nil }
-    if !FileManager.default.fileExists(atPath: LenswireShared.caPemURL.path) {
-      if let der = try? Data(contentsOf: LenswireShared.caCertURL) {
-        let pem = X509.pemCertificate(der: der)
-        try? pem.write(to: LenswireShared.caPemURL, atomically: true, encoding: .utf8)
-        try? pem.write(to: LenswireShared.documentsCaPemURL, atomically: true, encoding: .utf8)
-      }
-    }
-    return LenswireShared.caPemURL.path
-  }
-
   /// Documents PEM for share / Save to Files.
   func exportPath() -> String? {
     guard isReady() else { return nil }

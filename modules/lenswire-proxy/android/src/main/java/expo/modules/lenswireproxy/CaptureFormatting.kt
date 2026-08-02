@@ -189,11 +189,6 @@ internal object CaptureFormatting {
     }
   }
 
-  fun truncate(value: String, max: Int = MAX_TEXT_CHARS): String {
-    if (value.length <= max) return value
-    return value.substring(0, max) + "\n\n...truncated..."
-  }
-
   fun timing(
     dnsMs: Int = 0,
     connectMs: Int = 0,

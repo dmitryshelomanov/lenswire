@@ -1,10 +1,8 @@
 import * as React from 'react';
 
 import { isInspectable } from '@/entities/traffic/badges';
-import type { OverrideKind, OverrideRule, TrafficEntry } from '@/entities/traffic/types';
+import type { OverrideRule, TrafficEntry } from '@/entities/traffic/types';
 import { getOverrides, setOverrides } from '@/shared/api/native-proxy';
-
-import { contentTypeFromHeaders, headersFromEntry, newOverrideId } from '../lib/override-seed';
 
 export { contentTypeFromHeaders, headersFromEntry } from '../lib/override-seed';
 
@@ -13,41 +11,6 @@ export function canCreateOverride(entry: TrafficEntry): boolean {
   if (!isInspectable(entry)) return false;
   if (entry.method === 'CONNECT') return false;
   return true;
-}
-
-export function ruleFromEntry(
-  entry: TrafficEntry,
-  kind: OverrideKind,
-  overrides?: Partial<
-    Pick<OverrideRule, 'bodyText' | 'status' | 'contentType' | 'headers' | 'enabled'>
-  >,
-): OverrideRule {
-  const isResponse = kind === 'response';
-  return {
-    id: newOverrideId(),
-    enabled: overrides?.enabled ?? true,
-    kind,
-    method: entry.method,
-    scheme: entry.scheme,
-    host: entry.host,
-    path: entry.path || '/',
-    query: entry.query || '',
-    status: overrides?.status ?? (isResponse ? entry.status || 200 : 200),
-    contentType:
-      overrides?.contentType ??
-      (isResponse
-        ? contentTypeFromHeaders(entry.responseHeaders)
-        : contentTypeFromHeaders(entry.requestHeaders)),
-    headers:
-      overrides?.headers ??
-      (isResponse
-        ? headersFromEntry(entry.responseHeaders)
-        : headersFromEntry(entry.requestHeaders)),
-    bodyText:
-      overrides?.bodyText ??
-      (isResponse ? (entry.responseBody.text ?? '') : (entry.requestBody.text ?? '')),
-    createdAt: Date.now(),
-  };
 }
 
 type OverridesSnapshot = {

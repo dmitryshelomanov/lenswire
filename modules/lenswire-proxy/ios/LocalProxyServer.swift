@@ -1829,8 +1829,7 @@ final class LocalProxyServer {
       }
 
       if let upstreamTLS {
-        // Bridge client NW <-> upstream TLSBridge via temp relays is complex; use cancel for rare https-in-plain-proxy.
-        // Plain HTTP WS is typically non-TLS.
+        // HTTPS WebSocket over plain HTTP proxy: relay client NW <-> upstream TLSBridge.
         relayNW(client, to: upstreamTLS, queue: queue)
         relayTLSBridge(upstreamTLS, to: client, queue: queue)
       } else {

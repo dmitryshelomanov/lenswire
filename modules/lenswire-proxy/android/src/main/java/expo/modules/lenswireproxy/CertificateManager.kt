@@ -52,17 +52,6 @@ object CertificateManager {
     return info(context)
   }
 
-  fun pemPath(context: Context): String? {
-    if (!caCertDerFile(context).exists() || !SecureCaKeyStore.hasKey(context)) return null
-    val file = pemFile(context)
-    if (!file.exists()) {
-      file.parentFile?.mkdirs()
-      val ca = loadCa(context) ?: return null
-      file.writeText(ca.certPem)
-    }
-    return file.absolutePath
-  }
-
   /** DER `.cer` for manual Settings install / share. */
   fun cerPath(context: Context): String? {
     if (!caCertDerFile(context).exists() || !SecureCaKeyStore.hasKey(context)) return null

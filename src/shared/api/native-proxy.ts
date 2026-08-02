@@ -204,14 +204,6 @@ export function getCertificateInstallUrl(): string | null {
   }
 }
 
-export function getCertificatePemPath(): string | null {
-  try {
-    return LenswireProxy.getCertificatePemPath();
-  } catch {
-    return null;
-  }
-}
-
 /** Android: DER `.cer`; iOS: Documents PEM — for share / manual install. */
 export function getCertificateExportPath(): string | null {
   try {
