@@ -25,7 +25,7 @@ export function ResponseTab({ entry }: { entry: TrafficEntry }) {
         title="Body"
         action={<OverrideActionLink entry={entry} kind="response" label="Mock" />}
       >
-        <BodyView body={entry.responseBody} entry={entry} />
+        <BodyView body={entry.responseBody} entry={entry} side="response" />
       </Section>
     </View>
   );

@@ -33,6 +33,7 @@ function RootApp() {
             <Stack.Screen name="index" />
             <Stack.Screen name="domain/[host]" />
             <Stack.Screen name="request/[id]" />
+            <Stack.Screen name="body-viewer" options={{ presentation: 'modal' }} />
             <Stack.Screen name="overrides" />
             <Stack.Screen name="override/edit" />
             <Stack.Screen name="certificate" />

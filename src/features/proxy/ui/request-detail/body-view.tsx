@@ -2,12 +2,21 @@ import { isGrpcEntry } from '@/entities/traffic/grpc';
 import type { TrafficBody, TrafficEntry } from '@/entities/traffic/types';
 import { Text } from '@/shared/ui/text';
 
+import type { BodyViewerSide } from '../body-viewer/body-viewer-screen';
 import { BinaryBodyView } from './body-view/binary-body-view';
 import { GrpcBinaryBodyView } from './body-view/grpc-binary-body-view';
 import { ImageBodyView } from './body-view/image-body-view';
 import { TextBodyView } from './body-view/text-body-view';
 
-export function BodyView({ body, entry }: { body: TrafficBody; entry?: TrafficEntry }) {
+export function BodyView({
+  body,
+  entry,
+  side,
+}: {
+  body: TrafficBody;
+  entry?: TrafficEntry;
+  side?: BodyViewerSide;
+}) {
   if (body.kind === 'empty') {
     return <Text variant="muted">(empty)</Text>;
   }
@@ -21,5 +30,5 @@ export function BodyView({ body, entry }: { body: TrafficBody; entry?: TrafficEn
     return <BinaryBodyView body={body} />;
   }
 
-  return <TextBodyView body={body} />;
+  return <TextBodyView body={body} entryId={entry?.id} side={side} />;
 }
