@@ -2,7 +2,7 @@
   "expo": {
     "name": "Lenswire",
     "slug": "lenswire",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "description": "Native HTTP(S) inspector with MITM proxy for iOS and Android",
     "orientation": "default",
     "icon": "./assets/images/icon.png",
@@ -19,9 +19,14 @@
       "supportsTablet": true,
       "appleTeamId": "YOUR_APPLE_TEAM_ID",
       "bundleIdentifier": "com.lenswire.app",
+      "buildNumber": "2",
       "entitlements": {
-        "com.apple.security.application-groups": ["group.com.lenswire.app"],
-        "com.apple.developer.networking.networkextension": ["packet-tunnel-provider"]
+        "com.apple.security.application-groups": [
+          "group.com.lenswire.app"
+        ],
+        "com.apple.developer.networking.networkextension": [
+          "packet-tunnel-provider"
+        ]
       },
       "infoPlist": {
         "NSAppTransportSecurity": {
@@ -41,6 +46,7 @@
     },
     "android": {
       "package": "com.lenswire.app",
+      "versionCode": 2,
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/android-icon-foreground.png",
         "backgroundImage": "./assets/images/android-icon-background.png",
@@ -95,8 +101,12 @@
                   "bundleIdentifier": "com.lenswire.app.network-packet-tunnel",
                   "targetName": "networkpackettunnel",
                   "entitlements": {
-                    "com.apple.developer.networking.networkextension": ["packet-tunnel-provider"],
-                    "com.apple.security.application-groups": ["group.com.lenswire.app"]
+                    "com.apple.developer.networking.networkextension": [
+                      "packet-tunnel-provider"
+                    ],
+                    "com.apple.security.application-groups": [
+                      "group.com.lenswire.app"
+                    ]
                   }
                 }
               ]

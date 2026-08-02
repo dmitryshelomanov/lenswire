@@ -59,8 +59,11 @@ Preview APK for sideload: [GitHub Releases](https://github.com/dmitryshelomanov/
 - iPhone App Store screenshots (ready): [`docs/store-screenshots/*.png`](docs/store-screenshots/)
 
 ```bash
+npm run version:bump                  # bump semver + build numbers (patch by default)
 npm run build:android:preview:local   # APK for sideload (preferred)
 npm run release:android:github        # attach APK to GitHub Release
+# or one-shot:
+npm run release:android:preview       # bump → local preview APK → GitHub Release
 npm run build:android:local           # AAB for Play upload (preferred)
 npm run build:android:preview         # cloud APK (slower)
 npm run build:android                 # cloud AAB (slower)
@@ -277,7 +280,9 @@ Key components:
 | `npm run ios` / `android`                   | Build & run                                               |
 | `npm run prebuild:ios` / `prebuild:android` | Regenerate native projects (iOS also runs `link:hev-ios`) |
 | `npm run link:hev-ios`                      | Link HevSocks5Tunnel into Packet Tunnel (after prebuild)  |
+| `npm run version:bump`                      | Bump semver + iOS/Android build numbers                   |
 | `npm run build:android:preview:local`       | Local EAS preview APK                                     |
+| `npm run release:android:preview`           | Bump → local preview APK → GitHub Release                 |
 | `npm run release:android:github`            | Upload preview APK to GitHub Release                      |
 | `npm run build:android:local`               | Local EAS production AAB                                  |
 | `npm run screenshots:store`                 | Colorful marketing frames + website JPG screenshots       |

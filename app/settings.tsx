@@ -1,7 +1,7 @@
 import { useRouter } from 'expo-router';
 import { ArrowLeft, ChevronRight, FileDiff, Send } from 'lucide-react-native';
 import * as React from 'react';
-import { Platform, Pressable, ScrollView, View } from 'react-native';
+import { Alert, Linking, Platform, Pressable, ScrollView, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { useAndroidCaContext } from '@/features/proxy/hooks/use-android-ca-context';
@@ -11,7 +11,7 @@ import { useProxySettings, useProxyStatus } from '@/features/proxy/store';
 import { ProbeTypeModal } from '@/features/proxy/ui/traffic-toolbar/probe-type-modal';
 import { type ThemePreference, useThemeStore } from '@/features/theme/store';
 import { getDiagnostics } from '@/shared/api/native-proxy';
-import { getAppInfo } from '@/shared/lib/app-info';
+import { APP_CONTACT_EMAIL, getAppInfo } from '@/shared/lib/app-info';
 import { Badge } from '@/shared/ui/badge';
 import { Button } from '@/shared/ui/button';
 import { Icon } from '@/shared/ui/icon';
@@ -251,10 +251,41 @@ export default function SettingsScreen() {
           <Text variant="muted">Build {appInfo.build ?? '—'}</Text>
           <Text variant="muted">Author {appInfo.author}</Text>
           <Text variant="muted">License {appInfo.license}</Text>
+          <Button className="mt-2" variant="outline" onPress={() => openFeedbackEmail(appInfo)}>
+            <Text className="font-medium">Send feedback</Text>
+          </Button>
         </Field>
       </ScrollView>
     </SafeAreaView>
   );
+}
+
+async function openFeedbackEmail(appInfo: ReturnType<typeof getAppInfo>) {
+  const subject = 'Lenswire feedback';
+  const body = [
+    `App: ${appInfo.name} ${appInfo.version} (build ${appInfo.build ?? '—'})`,
+    `Platform: ${Platform.OS}`,
+    '',
+    'Describe your feedback:',
+    '',
+    '',
+  ].join('\n');
+  const url = `mailto:${APP_CONTACT_EMAIL}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+
+  try {
+    const supported = await Linking.canOpenURL(url);
+    if (!supported) {
+      Alert.alert(
+        'Unable to open mail',
+        'No mail app is available on this device. Email feedback to ' + APP_CONTACT_EMAIL + '.',
+      );
+      return;
+    }
+    await Linking.openURL(url);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    Alert.alert('Unable to open mail', message);
+  }
 }
 
 function safeDiagnostics() {
