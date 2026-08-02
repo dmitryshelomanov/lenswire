@@ -78,6 +78,9 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
 
       ProxyRuntimeStore.status = "listening"
       ProxyRuntimeStore.lastError = nil
+      MitmBypassStore.clear()
+      CertificateAuthority.shared.clearAllLeaves()
+      QuicUdpBlock.reset()
       ProxyRuntimeStore.diagnostics = [
         "mode": "full_tun",
         "proxyPort": Int(LenswireShared.proxyPort),
@@ -89,7 +92,9 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
         "path": UnderlyingNetwork.pathSummary(),
         "httpsDecrypt": LenswireShared.httpsDecryptEnabled,
         "caReady": caReady,
-        "quicForcedToTcp": true,
+        "quicUdpBlocked": true,
+        "quicDecrypt": false,
+        "quicDrops": QuicUdpBlock.dropCount(),
         "udpAssociate": true,
         "capabilities": [
           "httpCapture": true,
@@ -98,6 +103,7 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
           "nonHttpPortsVisible": true,
           "tcpOnlySocks": false,
           "quicDecrypt": false,
+          "quicUdpBlocked": true,
         ],
       ]
       os_log("Lenswire full_tun listening proxy=%{public}d socks=%{public}d", log: log, type: .info,

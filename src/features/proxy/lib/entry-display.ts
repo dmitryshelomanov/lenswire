@@ -177,6 +177,9 @@ export function decryptHelpHint(entry: TrafficEntry): string | null {
   if (entry.reasonCode === 'mitm_websocket') return MITM_WEBSOCKET_HINT;
   if (entry.reasonCode === 'websocket_relay') return WEBSOCKET_RELAY_HINT;
   if (entry.reasonCode === 'alpn_no_http11') return ALPN_NO_HTTP11_HINT;
+  if (entry.reasonCode === 'quic_udp_blocked') {
+    return 'UDP/443 (QUIC) was blocked by Lenswire. Clients should fall back to TCP; QUIC payload is not captured.';
+  }
   if (entry.reasonCode === 'mitm_error') return MITM_ERROR_HINT;
   if (entry.reasonCode === 'http_upstream_failed' || entry.reasonCode === 'http_upstream_timeout')
     return HTTP_UPSTREAM_FAILED_HINT;
@@ -203,6 +206,7 @@ export function decryptHelpTitle(entry: TrafficEntry): string | null {
   if (entry.reasonCode === 'mitm_websocket') return 'WebSocket (legacy)';
   if (entry.reasonCode === 'websocket_relay') return 'WebSocket relay';
   if (entry.reasonCode === 'alpn_no_http11') return 'ALPN without HTTP/1.1';
+  if (entry.reasonCode === 'quic_udp_blocked') return 'QUIC UDP blocked';
   if (entry.reasonCode === 'mitm_error') return 'MITM protocol mismatch';
   if (entry.reasonCode === 'http_upstream_failed') return 'HTTP upstream failed';
   if (entry.reasonCode === 'http_upstream_timeout') return 'HTTP upstream timeout';

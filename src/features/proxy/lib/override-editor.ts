@@ -11,6 +11,7 @@ export type HeaderRow = {
 type DraftSeed = {
   draft: OverrideRule;
   headerRows: HeaderRow[];
+  matchHeaderRows: HeaderRow[];
 };
 
 export function newHeaderRowId(): string {
@@ -46,20 +47,37 @@ export function guessContentType(fileName: string): string {
   return 'text/plain';
 }
 
+function withRuleDefaults(rule: OverrideRule): OverrideRule {
+  return {
+    ...rule,
+    pathMatch: rule.pathMatch === 'regex' ? 'regex' : 'exact',
+    matchHeaders: rule.matchHeaders ?? {},
+    delayMs: Number.isFinite(rule.delayMs) ? Math.max(0, Math.min(30_000, rule.delayMs)) : 0,
+    bodyMode: rule.bodyMode === 'statusOnly' ? 'statusOnly' : 'body',
+    headers: rule.headers ?? {},
+  };
+}
+
 export function seedOverrideDraft(
   existing: OverrideRule | undefined,
   entry: TrafficEntry | undefined,
   kind: OverrideKind,
 ): DraftSeed | null {
   if (existing) {
+    const draft = withRuleDefaults(existing);
     return {
-      draft: { ...existing, headers: existing.headers ?? {} },
-      headerRows: rowsFromHeaders(existing.headers),
+      draft,
+      headerRows: rowsFromHeaders(draft.headers),
+      matchHeaderRows: rowsFromHeaders(draft.matchHeaders),
     };
   }
   if (entry) {
-    const next = ruleFromEntry(entry, kind, { id: newOverrideId() });
-    return { draft: next, headerRows: rowsFromHeaders(next.headers) };
+    const next = withRuleDefaults(ruleFromEntry(entry, kind, { id: newOverrideId() }));
+    return {
+      draft: next,
+      headerRows: rowsFromHeaders(next.headers),
+      matchHeaderRows: rowsFromHeaders(next.matchHeaders),
+    };
   }
   return null;
 }

@@ -50,6 +50,7 @@ const DEFAULT_FILTERS: TrafficFilters = {
   scheme: 'ALL',
   captureMode: 'ALL',
   overriddenOnly: false,
+  searchBodies: false,
 };
 
 const DEFAULT_CERTIFICATE: CertificateInfo = {

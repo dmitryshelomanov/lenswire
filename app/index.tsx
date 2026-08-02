@@ -20,7 +20,7 @@ import { FilterSelect } from '@/features/proxy/ui/traffic-toolbar/filter-select'
 import { Icon } from '@/shared/ui/icon';
 import { Input } from '@/shared/ui/input';
 
-type CaptureFilter = 'ALL' | 'decrypted' | 'tunnel' | 'bypassed' | 'skipped';
+type CaptureFilter = 'ALL' | 'decrypted' | 'tunnel' | 'bypassed' | 'skipped' | 'quic';
 
 const CAPTURE_FILTERS: { value: CaptureFilter; label: string }[] = [
   { value: 'ALL', label: 'All' },
@@ -28,6 +28,7 @@ const CAPTURE_FILTERS: { value: CaptureFilter; label: string }[] = [
   { value: 'tunnel', label: 'Tunnel' },
   { value: 'bypassed', label: 'Bypassed' },
   { value: 'skipped', label: 'Skipped' },
+  { value: 'quic', label: 'QUIC' },
 ];
 
 function matchesCaptureFilter(group: DomainGroup, filter: CaptureFilter): boolean {
@@ -42,6 +43,8 @@ function matchesCaptureFilter(group: DomainGroup, filter: CaptureFilter): boolea
       return group.hasBypass;
     case 'skipped':
       return group.hasSkipped;
+    case 'quic':
+      return group.hasQuic;
   }
 }
 

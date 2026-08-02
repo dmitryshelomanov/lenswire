@@ -39,6 +39,43 @@ export function setOverrides(rules: OverrideRule[]): void {
   }
 }
 
+export type MitmBypassHost = {
+  host: string;
+  cause: string;
+};
+
+export function getMitmBypassHosts(): MitmBypassHost[] {
+  try {
+    const items = LenswireProxy.getMitmBypassHosts() ?? [];
+    return items
+      .map((item) => ({
+        host: String(item?.host ?? '')
+          .trim()
+          .toLowerCase(),
+        cause: String(item?.cause ?? '').trim(),
+      }))
+      .filter((item) => item.host.length > 0);
+  } catch {
+    return [];
+  }
+}
+
+export function removeMitmBypassHost(host: string): void {
+  try {
+    LenswireProxy.removeMitmBypassHost(host);
+  } catch {
+    // Native module may be unavailable.
+  }
+}
+
+export function clearMitmBypass(): void {
+  try {
+    LenswireProxy.clearMitmBypass();
+  } catch {
+    // Native module may be unavailable.
+  }
+}
+
 export function getProxyPort(): number {
   try {
     const port = Number(LenswireProxy.getProxyPort());

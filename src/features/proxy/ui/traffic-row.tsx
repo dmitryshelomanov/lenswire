@@ -17,9 +17,20 @@ import { Text } from '@/shared/ui/text';
 type Props = {
   entry: TrafficEntry;
   collapsedCount?: number;
+  selected?: boolean;
+  selecting?: boolean;
+  onToggleSelect?: () => void;
+  onLongPress?: () => void;
 };
 
-function TrafficRowImpl({ entry, collapsedCount = 1 }: Props) {
+function TrafficRowImpl({
+  entry,
+  collapsedCount = 1,
+  selected = false,
+  selecting = false,
+  onToggleSelect,
+  onLongPress,
+}: Props) {
   const time = new Date(entry.startedAt).toLocaleTimeString(undefined, {
     hour: '2-digit',
     minute: '2-digit',
@@ -31,10 +42,29 @@ function TrafficRowImpl({ entry, collapsedCount = 1 }: Props) {
 
   return (
     <Pressable
-      className="border-border active:bg-accent/40 border-b px-4 py-3 sm:px-6"
-      onPress={() => router.push(`/request/${entry.id}`)}
+      className={`border-border active:bg-accent/40 border-b px-4 py-3 sm:px-6 ${
+        selected ? 'bg-sky-500/10' : ''
+      }`}
+      onPress={() => {
+        if (selecting && onToggleSelect) {
+          onToggleSelect();
+          return;
+        }
+        router.push(`/request/${entry.id}`);
+      }}
+      onLongPress={onLongPress}
+      delayLongPress={350}
     >
       <View className="flex-row items-start gap-2">
+        {selecting ? (
+          <View
+            className={`mt-0.5 h-5 w-5 items-center justify-center rounded border ${
+              selected ? 'border-sky-500 bg-sky-500' : 'border-border bg-background'
+            }`}
+          >
+            {selected ? <Text className="text-[10px] font-bold text-white">✓</Text> : null}
+          </View>
+        ) : null}
         <View className="min-w-0 flex-1 flex-row flex-wrap items-center gap-2">
           <Badge label={entry.method} variant={methodBadgeVariant(entry.method)} />
           <Badge label={String(entry.status)} variant={statusBadgeVariant(entry.status)} />

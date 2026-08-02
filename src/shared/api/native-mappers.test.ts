@@ -95,5 +95,9 @@ describe('asOverrideRule', () => {
     expect(rule?.headers).toEqual({ 'x-a': '1' });
     expect(rule?.bodyText).toBe('1');
     expect(rule?.createdAt).toBe(7);
+    expect(rule?.pathMatch).toBe('exact');
+    expect(rule?.matchHeaders).toEqual({});
+    expect(rule?.delayMs).toBe(0);
+    expect(rule?.bodyMode).toBe('body');
   });
 });

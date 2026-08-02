@@ -34,6 +34,11 @@ public class LenswireProxyModule: Module {
       if (result["status"] as? String) == "stopped" || result["status"] == nil {
         result["status"] = VPNManager.shared.getStatus()
       }
+      var runtime = (result["runtime"] as? [String: Any]) ?? [:]
+      runtime["quicDrops"] = QuicUdpBlock.dropCount()
+      runtime["quicUdpBlocked"] = true
+      runtime["quicDecrypt"] = false
+      result["runtime"] = runtime
       return result
     }
 
@@ -129,6 +134,19 @@ public class LenswireProxyModule: Module {
 
     Function("getOverrides") { () -> String in
       LenswireShared.overridesJson
+    }
+
+    Function("getMitmBypassHosts") { () -> [[String: String]] in
+      MitmBypassStore.list()
+    }
+
+    Function("removeMitmBypassHost") { (host: String) in
+      // App Group map + leaf-clear command; extension drains leaves on next connection.
+      MitmBypassStore.remove(host)
+    }
+
+    Function("clearMitmBypass") {
+      MitmBypassStore.clear()
     }
   }
 }

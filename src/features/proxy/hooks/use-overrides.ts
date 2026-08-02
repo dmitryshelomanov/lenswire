@@ -4,6 +4,9 @@ import { isInspectable } from '@/entities/traffic/badges';
 import type { OverrideRule, TrafficEntry } from '@/entities/traffic/types';
 import { getOverrides, setOverrides } from '@/shared/api/native-proxy';
 
+import { rulesShareMatchKey } from '../lib/override-match-key';
+
+export { matchHeadersKey, rulesShareMatchKey } from '../lib/override-match-key';
 export { contentTypeFromHeaders, headersFromEntry } from '../lib/override-seed';
 
 /** Overrides need a decrypted HTTP exchange (not CONNECT tunnel / websocket). */
@@ -67,15 +70,7 @@ function upsertRule(rule: OverrideRule) {
     persist(next);
     return;
   }
-  const sameMatch = rules.findIndex(
-    (item) =>
-      item.kind === rule.kind &&
-      item.method === rule.method &&
-      item.scheme === rule.scheme &&
-      item.host.toLowerCase() === rule.host.toLowerCase() &&
-      item.path === rule.path &&
-      item.query === rule.query,
-  );
+  const sameMatch = rules.findIndex((item) => rulesShareMatchKey(item, rule));
   if (sameMatch >= 0) {
     const next = [...rules];
     next[sameMatch] = { ...rule, id: next[sameMatch].id };
@@ -101,6 +96,7 @@ export function useOverrides(): {
   upsertRule: (rule: OverrideRule) => void;
   removeRule: (id: string) => void;
   toggleRule: (id: string) => void;
+  replaceAll: (rules: OverrideRule[]) => void;
   reload: () => void;
 } {
   const { rules, ready } = React.useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
@@ -117,6 +113,7 @@ export function useOverrides(): {
     upsertRule,
     removeRule,
     toggleRule,
+    replaceAll: persist,
     reload: reloadStore,
   };
 }

@@ -13,6 +13,7 @@ export function hasAdvancedFilters(filters: ToolbarFilters): boolean {
     filters.statusClass !== 'ALL' ||
     filters.scheme !== 'ALL' ||
     filters.captureMode !== 'ALL' ||
-    Boolean(filters.overriddenOnly)
+    Boolean(filters.overriddenOnly) ||
+    Boolean(filters.searchBodies)
   );
 }

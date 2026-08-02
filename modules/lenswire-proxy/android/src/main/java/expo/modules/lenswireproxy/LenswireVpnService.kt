@@ -110,9 +110,16 @@ class LenswireVpnService : VpnService() {
       proxy.start(CaptureStore.PROXY_PORT)
       proxyServer = proxy
 
-      val socks = SocksBridgeServer(localProxyPort = CaptureStore.PROXY_PORT, listenPort = 1080, protectSocket = ::protectSocket)
+      val socks = SocksBridgeServer(
+        localProxyPort = CaptureStore.PROXY_PORT,
+        listenPort = 1080,
+        protectSocket = ::protectSocket,
+        appContext = applicationContext,
+      )
       socks.start()
       socksBridgeServer = socks
+
+      QuicUdpBlock.reset()
 
       val tunFd = tunInterface?.fd ?: throw IllegalStateException("TUN fd unavailable")
       val engine = Tun2SocksRuntime(
@@ -139,7 +146,9 @@ class LenswireVpnService : VpnService() {
           .getSharedPreferences("lenswire_settings", MODE_PRIVATE)
           .getBoolean("httpsDecrypt", true),
         "caReady" to (CertificateManager.loadCa(applicationContext) != null),
-        "quicForcedToTcp" to true,
+        "quicUdpBlocked" to true,
+        "quicDecrypt" to false,
+        "quicDrops" to QuicUdpBlock.dropCount(),
         "udpAssociate" to true,
         "capabilities" to mapOf(
           "httpCapture" to true,
@@ -148,6 +157,7 @@ class LenswireVpnService : VpnService() {
           "nonHttpPortsVisible" to true,
           "tcpOnlySocks" to false,
           "quicDecrypt" to false,
+          "quicUdpBlocked" to true,
         ),
       )
     } catch (e: Exception) {

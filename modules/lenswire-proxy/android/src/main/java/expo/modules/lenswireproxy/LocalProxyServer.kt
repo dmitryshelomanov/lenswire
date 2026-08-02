@@ -44,6 +44,22 @@ class LocalProxyServer(
 
   private fun mitmBypassCause(host: String): String? = mitmBypassHosts[host.lowercase()]
 
+  fun listMitmBypass(): List<Map<String, String>> =
+    mitmBypassHosts.entries
+      .sortedBy { it.key }
+      .map { mapOf("host" to it.key, "cause" to it.value) }
+
+  fun removeMitmBypass(host: String) {
+    val key = host.lowercase()
+    mitmBypassHosts.remove(key)
+    mitmContexts.remove(key)
+  }
+
+  fun clearMitmBypass() {
+    mitmBypassHosts.clear()
+    mitmContexts.clear()
+  }
+
   private fun connectUpstreamSocket(host: String, port: Int, timeoutMs: Int): Socket =
     UnderlyingNetwork.connect(host, port, timeoutMs)
 
@@ -576,8 +592,10 @@ class LocalProxyServer(
           host = upstreamHost,
           path = parsed.path,
           query = parsed.query,
+          requestHeaders = parsed.headers,
         )
         if (responseRule != null) {
+          responseRule.applyDelay()
           val mockBody = responseRule.bodyBytes()
           val mockHeaders = responseRule.responseHeaders()
           HttpIo.writeHttpResponse(
@@ -645,8 +663,10 @@ class LocalProxyServer(
           host = upstreamHost,
           path = parsed.path,
           query = parsed.query,
+          requestHeaders = parsed.headers,
         )
         if (requestRule != null) {
+          requestRule.applyDelay()
           val rewritten = OverrideRules.rewriteRequest(parsed.headers, requestRule)
           parsed = parsed.copy(headers = rewritten.first, body = rewritten.second)
           overrideApplied = "request"
@@ -1004,8 +1024,10 @@ class LocalProxyServer(
       host = captureHost,
       path = capturePath,
       query = query,
+      requestHeaders = headers,
     )
     if (responseRule != null) {
+      responseRule.applyDelay()
       val mockBody = responseRule.bodyBytes()
       val mockHeaders = responseRule.responseHeaders()
       try {
@@ -1058,8 +1080,10 @@ class LocalProxyServer(
       host = captureHost,
       path = capturePath,
       query = query,
+      requestHeaders = headers,
     )
     if (requestRule != null) {
+      requestRule.applyDelay()
       val rewritten = OverrideRules.rewriteRequest(headers, requestRule)
       effectiveHeaders = rewritten.first
       effectiveBody = rewritten.second

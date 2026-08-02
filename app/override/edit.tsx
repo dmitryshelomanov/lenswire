@@ -68,8 +68,11 @@ export default function OverrideEditScreen() {
   const [entryReady, setEntryReady] = React.useState(!params.entryId);
   const [draft, setDraft] = React.useState<OverrideRule | null>(null);
   const [headerRows, setHeaderRows] = React.useState<HeaderRow[]>([]);
+  const [matchHeaderRows, setMatchHeaderRows] = React.useState<HeaderRow[]>([]);
   const [fileName, setFileName] = React.useState<string | null>(null);
   const [pickingFile, setPickingFile] = React.useState(false);
+
+  const [pathError, setPathError] = React.useState<string | null>(null);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -106,6 +109,7 @@ export default function OverrideEditScreen() {
     queueMicrotask(() => {
       setDraft(seeded.draft);
       setHeaderRows(seeded.headerRows);
+      setMatchHeaderRows(seeded.matchHeaderRows);
     });
   }, [ready, entryReady, draft, existing, entry, kindParam]);
 
@@ -136,6 +140,11 @@ export default function OverrideEditScreen() {
   const updateHeaderRows = (nextRows: HeaderRow[]) => {
     setHeaderRows(nextRows);
     setDraft((prev) => (prev ? { ...prev, headers: headersFromRows(nextRows) } : prev));
+  };
+
+  const updateMatchHeaderRows = (nextRows: HeaderRow[]) => {
+    setMatchHeaderRows(nextRows);
+    setDraft((prev) => (prev ? { ...prev, matchHeaders: headersFromRows(nextRows) } : prev));
   };
 
   const pickFile = async () => {
@@ -199,10 +208,29 @@ export default function OverrideEditScreen() {
   const isResponse = draft.kind === 'response';
 
   const onSave = () => {
+    const statusOnly = draft.bodyMode === 'statusOnly';
+    const pathMatch = draft.pathMatch === 'regex' ? 'regex' : 'exact';
+    if (pathMatch === 'regex') {
+      try {
+        // Native uses unanchored substring match; still require a compilable pattern.
+        void new RegExp(draft.path);
+      } catch {
+        setPathError('Invalid regular expression');
+        return;
+      }
+    }
+    setPathError(null);
     upsertRule({
       ...draft,
       headers: headersFromRows(headerRows),
-      contentType: draft.contentType.trim() || 'application/json',
+      matchHeaders: headersFromRows(matchHeaderRows),
+      pathMatch,
+      bodyMode: statusOnly ? 'statusOnly' : 'body',
+      delayMs: Math.max(0, Math.min(30_000, Number.isFinite(draft.delayMs) ? draft.delayMs : 0)),
+      contentType: statusOnly
+        ? draft.contentType.trim()
+        : draft.contentType.trim() || 'application/json',
+      bodyText: statusOnly ? '' : draft.bodyText,
       status: Number.isFinite(draft.status) && draft.status > 0 ? draft.status : 200,
     });
     router.replace('/overrides');
@@ -250,8 +278,72 @@ export default function OverrideEditScreen() {
             {matchLabel}
           </Text>
           <Text variant="muted" className="mt-1 text-xs">
-            Exact method + URL. Tunnel-only HTTPS cannot be overridden.
+            Method + host must match. Path can be exact or regex. Empty query matches any query.
+            Tunnel-only HTTPS cannot be overridden.
           </Text>
+          <View className="bg-muted/50 border-border mt-3 flex-row gap-2 rounded-md border p-1">
+            {(
+              [
+                { value: 'exact' as const, label: 'Exact path' },
+                { value: 'regex' as const, label: 'Regex path' },
+              ] as const
+            ).map((option) => {
+              const selected = draft.pathMatch === option.value;
+              return (
+                <Pressable
+                  key={option.value}
+                  onPress={() => {
+                    setPathError(null);
+                    setDraft((prev) => (prev ? { ...prev, pathMatch: option.value } : prev));
+                  }}
+                  className={`flex-1 rounded-md px-3 py-2 ${
+                    selected ? 'bg-background border-border border' : ''
+                  }`}
+                >
+                  <Text
+                    className={`text-center text-sm ${
+                      selected ? 'text-foreground font-medium' : 'text-muted-foreground'
+                    }`}
+                  >
+                    {option.label}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+          <Input
+            className="mt-2 font-mono text-sm"
+            value={draft.path}
+            autoCapitalize="none"
+            autoCorrect={false}
+            onChangeText={(path) => {
+              setPathError(null);
+              setDraft((prev) => (prev ? { ...prev, path } : prev));
+            }}
+            placeholder={draft.pathMatch === 'regex' ? '^/api/.*' : '/path'}
+          />
+          {pathError ? (
+            <Text className="text-destructive mt-1 text-xs">{pathError}</Text>
+          ) : null}
+          <Text variant="muted" className="mt-3 text-xs">
+            Match headers (optional) — request must include each name; value is a case-insensitive
+            substring (empty value = name present).
+          </Text>
+          <HeaderRowsEditor rows={matchHeaderRows} onChange={updateMatchHeaderRows} />
+          <Button
+            variant="outline"
+            size="sm"
+            className="mt-2 self-start"
+            onPress={() =>
+              updateMatchHeaderRows([
+                ...matchHeaderRows,
+                { id: newHeaderRowId(), name: '', value: '' },
+              ])
+            }
+          >
+            <Icon as={Plus} className="text-foreground" size={14} />
+            <Text className="text-sm">Add match header</Text>
+          </Button>
         </Section>
 
         <Section title="Kind">
@@ -278,21 +370,65 @@ export default function OverrideEditScreen() {
               }}
               placeholder="200"
             />
+            <View className="mt-3">
+              <SwitchRow
+                value={draft.bodyMode === 'statusOnly'}
+                onLabel="Status only"
+                offLabel="Status + body"
+                onToggle={() =>
+                  setDraft((prev) =>
+                    prev
+                      ? {
+                          ...prev,
+                          bodyMode: prev.bodyMode === 'statusOnly' ? 'body' : 'statusOnly',
+                        }
+                      : prev,
+                  )
+                }
+              />
+              <Text variant="muted" className="mt-1 text-xs">
+                Status only returns status and headers with an empty body (no Content-Type forced).
+              </Text>
+            </View>
           </Section>
         ) : null}
 
-        <Section title="Content-Type">
+        <Section title="Delay">
           <Input
-            value={draft.contentType}
-            autoCapitalize="none"
-            autoCorrect={false}
-            onChangeText={(contentType) =>
-              setDraft((prev) => (prev ? { ...prev, contentType } : prev))
-            }
-            placeholder="application/json"
-            className="font-mono text-sm"
+            value={String(draft.delayMs ?? 0)}
+            keyboardType="number-pad"
+            onChangeText={(raw) => {
+              const delayMs = Number.parseInt(raw.replace(/[^0-9]/g, ''), 10);
+              setDraft((prev) =>
+                prev
+                  ? {
+                      ...prev,
+                      delayMs: Number.isFinite(delayMs) ? Math.min(30_000, delayMs) : 0,
+                    }
+                  : prev,
+              );
+            }}
+            placeholder="0"
           />
+          <Text variant="muted" className="mt-1 text-xs">
+            Milliseconds to wait before applying the mock or rewrite (max 30000).
+          </Text>
         </Section>
+
+        {draft.bodyMode !== 'statusOnly' ? (
+          <Section title="Content-Type">
+            <Input
+              value={draft.contentType}
+              autoCapitalize="none"
+              autoCorrect={false}
+              onChangeText={(contentType) =>
+                setDraft((prev) => (prev ? { ...prev, contentType } : prev))
+              }
+              placeholder="application/json"
+              className="font-mono text-sm"
+            />
+          </Section>
+        ) : null}
 
         <Section title={isResponse ? 'Response headers' : 'Request headers'}>
           <Text variant="muted" className="text-xs">
@@ -320,42 +456,44 @@ export default function OverrideEditScreen() {
           </Button>
         </Section>
 
-        <Section title={isResponse ? 'Response body' : 'Request body'}>
-          <Text variant="muted" className="text-xs">
-            {isResponse
-              ? 'Returned to the client as the response body.'
-              : 'Replaces the outgoing request body.'}
-          </Text>
-          <Button
-            variant="outline"
-            size="sm"
-            className="mt-2 self-start"
-            disabled={pickingFile}
-            onPress={() => void pickFile()}
-          >
-            <Icon as={FileUp} className="text-foreground" size={14} />
-            <Text className="text-sm">{pickingFile ? 'Opening…' : 'Load from file'}</Text>
-          </Button>
-          {fileName ? (
-            <Text variant="muted" className="mt-1 font-mono text-xs">
-              Loaded: {fileName}
+        {draft.bodyMode !== 'statusOnly' ? (
+          <Section title={isResponse ? 'Response body' : 'Request body'}>
+            <Text variant="muted" className="text-xs">
+              {isResponse
+                ? 'Returned to the client as the response body.'
+                : 'Replaces the outgoing request body.'}
             </Text>
-          ) : null}
-          <TextInput
-            value={draft.bodyText}
-            onChangeText={(bodyText) => {
-              setFileName(null);
-              setDraft((prev) => (prev ? { ...prev, bodyText } : prev));
-            }}
-            multiline
-            textAlignVertical="top"
-            autoCapitalize="none"
-            autoCorrect={false}
-            className="border-input bg-background text-foreground mt-2 min-h-[220px] rounded-md border px-3 py-3 font-mono text-sm"
-            placeholder={isResponse ? '{ "ok": true }' : '{ "userId": 1, "name": "test" }'}
-            placeholderTextColor="hsl(0 0% 63.9%)"
-          />
-        </Section>
+            <Button
+              variant="outline"
+              size="sm"
+              className="mt-2 self-start"
+              disabled={pickingFile}
+              onPress={() => void pickFile()}
+            >
+              <Icon as={FileUp} className="text-foreground" size={14} />
+              <Text className="text-sm">{pickingFile ? 'Opening…' : 'Load from file'}</Text>
+            </Button>
+            {fileName ? (
+              <Text variant="muted" className="mt-1 font-mono text-xs">
+                Loaded: {fileName}
+              </Text>
+            ) : null}
+            <TextInput
+              value={draft.bodyText}
+              onChangeText={(bodyText) => {
+                setFileName(null);
+                setDraft((prev) => (prev ? { ...prev, bodyText } : prev));
+              }}
+              multiline
+              textAlignVertical="top"
+              autoCapitalize="none"
+              autoCorrect={false}
+              className="border-input bg-background text-foreground mt-2 min-h-[220px] rounded-md border px-3 py-3 font-mono text-sm"
+              placeholder={isResponse ? '{ "ok": true }' : '{ "userId": 1, "name": "test" }'}
+              placeholderTextColor="hsl(0 0% 63.9%)"
+            />
+          </Section>
+        ) : null}
       </ScrollView>
 
       <View className="border-border bg-background border-t px-4 py-3 sm:px-6">

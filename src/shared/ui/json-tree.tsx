@@ -216,13 +216,14 @@ function JsonNode({
 }: JsonNodeProps) {
   const kind = valueKind(value);
   const isExpandable = kind === 'object' || kind === 'array';
-  const [expanded, setExpanded] = React.useState(() =>
-    defaultExpanded(depth, path, initialExpandDepth, expandMode, matchCtx),
-  );
-
-  React.useEffect(() => {
-    setExpanded(defaultExpanded(depth, path, initialExpandDepth, expandMode, matchCtx));
-  }, [depth, path, initialExpandDepth, expandMode, matchCtx]);
+  const desiredExpanded = defaultExpanded(depth, path, initialExpandDepth, expandMode, matchCtx);
+  const expandKey = `${path}\0${initialExpandDepth}\0${expandMode}\0${matchCtx.query}\0${matchCtx.matchingPaths.size}`;
+  const [expanded, setExpanded] = React.useState(desiredExpanded);
+  const [prevExpandKey, setPrevExpandKey] = React.useState(expandKey);
+  if (expandKey !== prevExpandKey) {
+    setPrevExpandKey(expandKey);
+    setExpanded(desiredExpanded);
+  }
 
   const copyPath = React.useCallback(() => {
     void Clipboard.setStringAsync(path).then(() => onCopied?.('path'));

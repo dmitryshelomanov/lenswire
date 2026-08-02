@@ -25,12 +25,14 @@ export default function BodyViewerRoute() {
 
   React.useEffect(() => {
     if (!entryId) {
-      setBody(null);
-      setLoading(false);
+      queueMicrotask(() => {
+        setBody(null);
+        setLoading(false);
+      });
       return;
     }
     let cancelled = false;
-    setLoading(true);
+    queueMicrotask(() => setLoading(true));
     void loadFullEntry(entryId).then((full) => {
       if (cancelled) return;
       if (!full) {

@@ -8,6 +8,8 @@ let cachedStorage: SafeAsyncStorage | null | undefined;
 export function getSafeAsyncStorage(): SafeAsyncStorage | null {
   if (cachedStorage !== undefined) return cachedStorage;
   try {
+    // Optional native module — require so web/SSR builds still load.
+    // eslint-disable-next-line @typescript-eslint/no-require-imports -- optional native dependency
     const mod = require('@react-native-async-storage/async-storage');
     cachedStorage = (mod?.default ?? mod) as SafeAsyncStorage;
   } catch {

@@ -15,7 +15,13 @@ import { useProxySettings, useProxyStatus } from '@/features/proxy/store';
 import { CaptureStatusesIntro } from '@/features/proxy/ui/capture-statuses-intro';
 import { ProbeTypeModal } from '@/features/proxy/ui/traffic-toolbar/probe-type-modal';
 import { type ThemePreference, useThemeStore } from '@/features/theme/store';
-import { getDiagnostics } from '@/shared/api/native-proxy';
+import {
+  clearMitmBypass,
+  getDiagnostics,
+  getMitmBypassHosts,
+  type MitmBypassHost,
+  removeMitmBypassHost,
+} from '@/shared/api/native-proxy';
 import { APP_CONTACT_EMAIL, getAppInfo } from '@/shared/lib/app-info';
 import { Badge } from '@/shared/ui/badge';
 import { Button } from '@/shared/ui/button';
@@ -39,10 +45,21 @@ export default function SettingsScreen() {
   const { showEmulatorTrustCa } = useAndroidCaContext();
   const [probePickerOpen, setProbePickerOpen] = React.useState(false);
   const [captureIntroOpen, setCaptureIntroOpen] = React.useState(false);
+  const [bypassHosts, setBypassHosts] = React.useState<MitmBypassHost[]>([]);
   const listening = status === 'listening';
   const enabledOverrides = rules.filter((rule) => rule.enabled).length;
   const diagnostics = safeDiagnostics();
   const appInfo = getAppInfo();
+
+  const refreshBypassHosts = React.useCallback(() => {
+    setBypassHosts(getMitmBypassHosts());
+  }, []);
+
+  React.useEffect(() => {
+    queueMicrotask(refreshBypassHosts);
+    const id = setInterval(refreshBypassHosts, 2000);
+    return () => clearInterval(id);
+  }, [refreshBypassHosts, listening]);
 
   return (
     <SafeAreaView className="flex-1 bg-background">
@@ -198,6 +215,56 @@ export default function SettingsScreen() {
           ) : null}
         </Field>
 
+        <Field label="Session MITM bypass">
+          <Text variant="muted">
+            Hosts that failed MITM once stay tunnel-only until you retry or Stop VPN. Retry removes
+            the host from the session bypass list.
+          </Text>
+          {bypassHosts.length === 0 ? (
+            <Text variant="muted" className="mt-2">
+              No hosts on the bypass list.
+            </Text>
+          ) : (
+            <View className="mt-2 gap-2">
+              {bypassHosts.map((item) => (
+                <View
+                  key={item.host}
+                  className="border-border bg-muted/40 flex-row items-center gap-2 rounded-md border px-3 py-2"
+                >
+                  <View className="min-w-0 flex-1 gap-1">
+                    <Text className="font-mono text-sm" numberOfLines={1}>
+                      {item.host}
+                    </Text>
+                    {item.cause ? (
+                      <Badge label={item.cause} variant="outline" className="self-start" />
+                    ) : null}
+                  </View>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onPress={() => {
+                      removeMitmBypassHost(item.host);
+                      refreshBypassHosts();
+                    }}
+                  >
+                    <Text className="text-sm">Retry MITM</Text>
+                  </Button>
+                </View>
+              ))}
+              <Button
+                variant="outline"
+                size="sm"
+                onPress={() => {
+                  clearMitmBypass();
+                  refreshBypassHosts();
+                }}
+              >
+                <Text className="font-medium">Clear all</Text>
+              </Button>
+            </View>
+          )}
+        </Field>
+
         <Field label="Capture statuses">
           <Text variant="muted">{CAPTURE_STATUSES_INTRO.lead}</Text>
           <View className="mt-2 gap-3">
@@ -267,9 +334,9 @@ export default function SettingsScreen() {
           <Text variant="muted" className="mt-2">
             {Platform.OS === 'android'
               ? showEmulatorTrustCa
-                ? 'Capability matrix: HTTP capture yes; Chrome HTTPS needs System CA (`npm run android:trust-ca` on this emulator); pinned apps need external Frida/LSPosed unpin and may stay tunnel-only. QUIC is not decrypted (`quicDecrypt: false`); TCP HTTPS works when Chrome falls back.'
-                : 'Capability matrix: HTTP capture yes; Chrome ignores User CAs on Android 7+; pinned apps need external Frida/LSPosed unpin and may stay tunnel-only. QUIC is not decrypted (`quicDecrypt: false`); TCP HTTPS works when Chrome falls back.'
-              : 'Capability matrix: HTTP capture yes; HTTPS MITM needs trusted Lenswire CA + decrypt on; pinned apps stay tunnel-only. Full TUN → hev → SOCKS → MITM (no system HTTP proxy). QUIC is not decrypted.'}
+                ? 'Capability matrix: HTTP capture yes; Chrome HTTPS needs System CA (`npm run android:trust-ca` on this emulator); pinned apps need external Frida/LSPosed unpin and may stay tunnel-only. UDP/443 (QUIC) is blocked so browsers fall back to TCP (`quicUdpBlocked`); QUIC payload is not captured (`quicDecrypt: false`).'
+                : 'Capability matrix: HTTP capture yes; Chrome ignores User CAs on Android 7+; pinned apps need external Frida/LSPosed unpin and may stay tunnel-only. UDP/443 (QUIC) is blocked so browsers fall back to TCP (`quicUdpBlocked`); QUIC payload is not captured (`quicDecrypt: false`).'
+              : 'Capability matrix: HTTP capture yes; HTTPS MITM needs trusted Lenswire CA + decrypt on; pinned apps stay tunnel-only. Full TUN → hev → SOCKS → MITM (no system HTTP proxy). UDP/443 (QUIC) is blocked so clients fall back to TCP; QUIC payload is not captured.'}
           </Text>
         </Field>
 

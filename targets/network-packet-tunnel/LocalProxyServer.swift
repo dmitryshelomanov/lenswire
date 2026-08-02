@@ -10,9 +10,12 @@ final class LocalProxyServer {
   private let queue = DispatchQueue(label: "com.lenswire.localproxy", qos: .userInitiated)
   /// Separate from `queue` so Secure Transport waits do not deadlock NW receive callbacks.
   private let mitmQueue = DispatchQueue(label: "com.lenswire.mitm", qos: .userInitiated, attributes: .concurrent)
-  private let bypassLock = NSLock()
-  /// Session MITM bypass: host lowercase → cause reasonCode that first triggered bypass.
-  private var mitmBypassHosts = [String: String]()
+  /// Concurrent workers so override `applyDelay` / upstream I/O do not stall NW accept.
+  private let httpWorkerQueue = DispatchQueue(
+    label: "com.lenswire.localproxy.http",
+    qos: .userInitiated,
+    attributes: .concurrent
+  )
 
   func start() throws {
     guard listener == nil else { return }
@@ -29,30 +32,49 @@ final class LocalProxyServer {
   func stop() {
     listener?.cancel()
     listener = nil
+    MitmBypassStore.clear()
   }
 
-  private func isBypassed(_ host: String) -> Bool {
-    bypassLock.lock()
-    defer { bypassLock.unlock() }
-    return mitmBypassHosts[host.lowercased()] != nil
-  }
-
-  private func bypassCause(for host: String) -> String? {
-    bypassLock.lock()
-    defer { bypassLock.unlock() }
-    return mitmBypassHosts[host.lowercased()]
-  }
-
-  private func addBypass(_ host: String, cause: String) {
-    bypassLock.lock()
-    defer { bypassLock.unlock() }
-    let key = host.lowercased()
-    if mitmBypassHosts[key] == nil {
-      mitmBypassHosts[key] = cause
+  private func applyPendingLeafClears() {
+    let cmd = MitmBypassStore.consumeLeafClearCommands()
+    if cmd.clearAll {
+      CertificateAuthority.shared.clearAllLeaves()
+      return
+    }
+    for host in cmd.hosts {
+      CertificateAuthority.shared.clearLeaf(for: host)
     }
   }
 
+  private func isBypassed(_ host: String) -> Bool {
+    applyPendingLeafClears()
+    return MitmBypassStore.contains(host)
+  }
+
+  private func bypassCause(for host: String) -> String? {
+    MitmBypassStore.cause(for: host)
+  }
+
+  private func addBypass(_ host: String, cause: String) {
+    MitmBypassStore.add(host, cause: cause)
+  }
+
+  func listMitmBypass() -> [[String: String]] {
+    MitmBypassStore.list()
+  }
+
+  func removeMitmBypass(_ host: String) {
+    MitmBypassStore.remove(host)
+    CertificateAuthority.shared.clearLeaf(for: host)
+  }
+
+  func clearMitmBypass() {
+    MitmBypassStore.clear()
+    CertificateAuthority.shared.clearAllLeaves()
+  }
+
   private func handle(connection: NWConnection) {
+    applyPendingLeafClears()
     connection.start(queue: queue)
     accumulateHTTPRequest(connection: connection, buffer: Data())
   }
@@ -190,23 +212,26 @@ final class LocalProxyServer {
       return
     }
 
-    Self.forwardHTTP(
-      requestData: data,
-      rawTarget: target,
-      scheme: scheme,
-      host: host,
-      upstreamURL: upstreamURL,
-      client: client,
-      onBypassHost: { [weak self] bypassHost, cause in
-        self?.addBypass(bypassHost, cause: cause)
+    // Hop off the NW serial queue so override delays do not block accepts.
+    httpWorkerQueue.async {
+      Self.forwardHTTP(
+        requestData: data,
+        rawTarget: target,
+        scheme: scheme,
+        host: host,
+        upstreamURL: upstreamURL,
+        client: client,
+        onBypassHost: { [weak self] bypassHost, cause in
+          self?.addBypass(bypassHost, cause: cause)
+        }
+      ) { capture in
+        var entry = capture
+        entry["scheme"] = scheme
+        entry["host"] = host
+        if entry["path"] == nil { entry["path"] = path }
+        if entry["query"] == nil { entry["query"] = query }
+        LenswireShared.appendCapture(entry)
       }
-    ) { capture in
-      var entry = capture
-      entry["scheme"] = scheme
-      entry["host"] = host
-      if entry["path"] == nil { entry["path"] = path }
-      if entry["query"] == nil { entry["query"] = query }
-      LenswireShared.appendCapture(entry)
     }
   }
 
@@ -629,8 +654,10 @@ final class LocalProxyServer {
           scheme: "https",
           host: upstreamHost,
           path: parsed.path,
-          query: parsed.query
+          query: parsed.query,
+          requestHeaders: parsed.headers
         ) {
+          responseRule.applyDelay()
           let mockBody = responseRule.bodyData
           let mockHeaders = responseRule.responseHeaders
           let responseBytes = Self.encodeHTTP11Response(
@@ -706,8 +733,10 @@ final class LocalProxyServer {
           scheme: "https",
           host: upstreamHost,
           path: parsed.path,
-          query: parsed.query
+          query: parsed.query,
+          requestHeaders: parsed.headers
         ) {
+          requestRule.applyDelay()
           let rewritten = LenswireShared.rewriteRequest(headers: parsed.headers, rule: requestRule)
           parsed.headers = rewritten.headers
           parsed.body = rewritten.body
@@ -1032,8 +1061,10 @@ final class LocalProxyServer {
       scheme: captureScheme,
       host: captureHost,
       path: parsed.path,
-      query: parsed.query
+      query: parsed.query,
+      requestHeaders: parsed.headers
     ) {
+      responseRule.applyDelay()
       let mockBody = responseRule.bodyData
       let mockHeaders = responseRule.responseHeaders
       let totalMs = max(1, Int(Date().timeIntervalSince(t0) * 1000))
@@ -1081,8 +1112,10 @@ final class LocalProxyServer {
       scheme: captureScheme,
       host: captureHost,
       path: parsed.path,
-      query: parsed.query
+      query: parsed.query,
+      requestHeaders: parsed.headers
     ) {
+      requestRule.applyDelay()
       let rewritten = LenswireShared.rewriteRequest(headers: parsed.headers, rule: requestRule)
       parsed.headers = rewritten.headers
       parsed.body = rewritten.body

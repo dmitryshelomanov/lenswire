@@ -1,5 +1,53 @@
 import { resourceTypeOf } from './resource-type';
-import { statusClassOf, type TrafficEntry, type TrafficFilters } from './types';
+import { type HeaderMap, statusClassOf, type TrafficEntry, type TrafficFilters } from './types';
+
+function headersHaystack(headers: HeaderMap | undefined): string {
+  if (!headers) return '';
+  return Object.entries(headers)
+    .flatMap(([key, value]) => [key, value])
+    .join(' ');
+}
+
+export function entryMatchesQuery(
+  entry: TrafficEntry,
+  query: string,
+  options?: { includeBodies?: boolean },
+): boolean {
+  const q = query.trim().toLowerCase();
+  if (!q) return true;
+
+  const haystack = [
+    entry.method,
+    entry.host,
+    entry.path,
+    entry.query,
+    entry.status,
+    entry.reasonCode,
+    entry.hostnameSource,
+    entry.sniHostname,
+    entry.rawTarget,
+    entry.connectTarget,
+    entry.connectHost,
+    entry.connectPort,
+    entry.effectiveHost,
+    entry.captureMode,
+    entry.captureSummary,
+    entry.scheme,
+    headersHaystack(entry.requestHeaders),
+    headersHaystack(entry.responseHeaders),
+  ]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase();
+  if (haystack.includes(q)) return true;
+
+  if (!options?.includeBodies) return false;
+  const bodies = [entry.requestBody?.text, entry.responseBody?.text]
+    .filter((text): text is string => typeof text === 'string' && text.length > 0)
+    .join(' ')
+    .toLowerCase();
+  return bodies.includes(q);
+}
 
 export function filterEntries(entries: TrafficEntry[], filters: TrafficFilters): TrafficEntry[] {
   const q = filters.query.trim().toLowerCase();
@@ -20,28 +68,6 @@ export function filterEntries(entries: TrafficEntry[], filters: TrafficFilters):
     if (filters.captureMode !== 'ALL' && entry.captureMode !== filters.captureMode) return false;
     if (filters.overriddenOnly && entry.overrideApplied == null) return false;
     if (!q) return true;
-
-    const haystack = [
-      entry.method,
-      entry.host,
-      entry.path,
-      entry.query,
-      entry.status,
-      entry.reasonCode,
-      entry.hostnameSource,
-      entry.sniHostname,
-      entry.rawTarget,
-      entry.connectTarget,
-      entry.connectHost,
-      entry.connectPort,
-      entry.effectiveHost,
-      entry.captureMode,
-      entry.captureSummary,
-      entry.scheme,
-    ]
-      .filter(Boolean)
-      .join(' ')
-      .toLowerCase();
-    return haystack.includes(q);
+    return entryMatchesQuery(entry, q, { includeBodies: false });
   });
 }

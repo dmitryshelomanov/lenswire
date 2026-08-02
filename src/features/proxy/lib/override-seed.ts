@@ -38,6 +38,10 @@ export function ruleFromEntry(
     host: entry.host,
     path: entry.path || '/',
     query: entry.query || '',
+    pathMatch: 'exact',
+    matchHeaders: {},
+    delayMs: 0,
+    bodyMode: 'body',
     status: overrides?.status ?? (isResponse ? entry.status || 200 : 200),
     contentType:
       overrides?.contentType ??

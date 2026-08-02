@@ -238,6 +238,10 @@ final class SocksBridgeServer {
     guard idx + 2 <= packet.count else { return }
     let destPort = (Int(packet[idx]) << 8) | Int(packet[idx + 1])
     idx += 2
+    if destPort == 443 {
+      QuicUdpBlock.recordDrop(host: destHost)
+      return
+    }
     let payload = Array(packet[idx...])
     destAddr.sin_port = UInt16(destPort).bigEndian
 

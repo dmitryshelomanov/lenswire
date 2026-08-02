@@ -1,12 +1,12 @@
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { type Href, useLocalSearchParams, useRouter } from 'expo-router';
 import { ArrowLeft, Check, Copy, Star } from 'lucide-react-native';
 import * as React from 'react';
 import { FlatList, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { filterEntries } from '@/entities/traffic/filter';
 import type { TrafficEntry } from '@/entities/traffic/types';
 import { useCopiedFeedback } from '@/features/proxy/hooks/use-copied-feedback';
+import { useFilteredEntriesWithBodySearch } from '@/features/proxy/hooks/use-filtered-entries-with-body-search';
 import { summarizeHost } from '@/features/proxy/lib/domain-group';
 import { formatRelativeTime } from '@/features/proxy/lib/format-relative-time';
 import { resolveTrafficEmptyKind } from '@/features/proxy/lib/traffic-empty-kind';
@@ -42,14 +42,19 @@ export default function DomainScreen() {
   const { copied, copy } = useCopiedFeedback();
   const [hideConnect, setHideConnect] = React.useState(false);
   const [viewMode, setViewMode] = React.useState<ViewMode>('list');
+  const [selecting, setSelecting] = React.useState(false);
+  const [selectedIds, setSelectedIds] = React.useState<string[]>([]);
   const host = decodeHostParam(encodedHost);
   const pinned = pinnedHosts.includes(host);
   const summary = React.useMemo(() => summarizeHost(entries, host), [entries, host]);
 
-  const filtered = filterEntries(entries, filters);
-  const byHost = React.useMemo(
-    () => filtered.filter((entry) => entry.host === host),
-    [filtered, host],
+  const hostEntries = React.useMemo(
+    () => entries.filter((entry) => entry.host === host),
+    [entries, host],
+  );
+  const { filtered: byHost, searchingBodies } = useFilteredEntriesWithBodySearch(
+    hostEntries,
+    filters,
   );
   const withoutConnect = React.useMemo(
     () => (hideConnect ? byHost.filter((entry) => entry.method !== 'CONNECT') : byHost),
@@ -65,6 +70,7 @@ export default function DomainScreen() {
     filters.scheme !== 'ALL' ||
     filters.captureMode !== 'ALL' ||
     filters.overriddenOnly ||
+    filters.searchBodies ||
     hideConnect;
 
   const visibleCount = viewMode === 'waterfall' ? withoutConnect.length : compacted.length;
@@ -132,6 +138,8 @@ export default function DomainScreen() {
             ) : null}
             {summary.hasBypass ? (
               <Badge label="bypassed" variant="outline" />
+            ) : summary.hasQuic ? (
+              <Badge label="quic" variant="outline" />
             ) : summary.hasSkipped ? (
               <Badge label="skipped" variant="outline" />
             ) : summary.tunnelOnly ? (
@@ -161,14 +169,55 @@ export default function DomainScreen() {
           <Button
             variant={viewMode === 'waterfall' ? 'secondary' : 'outline'}
             size="sm"
-            onPress={() => setViewMode('waterfall')}
+            onPress={() => {
+              setViewMode('waterfall');
+              setSelecting(false);
+              setSelectedIds([]);
+            }}
           >
             <Text>Waterfall</Text>
           </Button>
+          {viewMode === 'list' ? (
+            <Button
+              variant={selecting ? 'secondary' : 'outline'}
+              size="sm"
+              onPress={() => {
+                setSelecting((v) => !v);
+                setSelectedIds([]);
+              }}
+            >
+              <Text>{selecting ? 'Cancel select' : 'Select'}</Text>
+            </Button>
+          ) : null}
+          {viewMode === 'list' && selecting ? (
+            <Button
+              variant="default"
+              size="sm"
+              disabled={selectedIds.length !== 2}
+              onPress={() => {
+                if (selectedIds.length !== 2) return;
+                const [a, b] = selectedIds;
+                setSelecting(false);
+                setSelectedIds([]);
+                router.push(
+                  `/compare?a=${encodeURIComponent(a)}&b=${encodeURIComponent(b)}` as Href,
+                );
+              }}
+            >
+              <Text className="text-primary-foreground">
+                Compare{selectedIds.length > 0 ? ` (${selectedIds.length}/2)` : ''}
+              </Text>
+            </Button>
+          ) : null}
         </View>
       </View>
 
       <TrafficToolbar showControls={false} showFilters />
+      {searchingBodies ? (
+        <Text variant="muted" className="border-border border-b px-4 py-2 text-xs sm:px-6">
+          Searching bodies…
+        </Text>
+      ) : null}
 
       {emptyKind ? (
         <TrafficEmptyState kind={emptyKind} />
@@ -179,7 +228,27 @@ export default function DomainScreen() {
           data={compacted}
           keyExtractor={(item) => item.entry.id}
           renderItem={({ item }) => (
-            <TrafficRow entry={item.entry} collapsedCount={item.collapsedCount} />
+            <TrafficRow
+              entry={item.entry}
+              collapsedCount={item.collapsedCount}
+              selecting={selecting}
+              selected={selectedIds.includes(item.entry.id)}
+              onLongPress={() => {
+                setSelecting(true);
+                setSelectedIds((prev) =>
+                  prev.includes(item.entry.id) ? prev : [...prev, item.entry.id].slice(-2),
+                );
+              }}
+              onToggleSelect={() => {
+                setSelectedIds((prev) => {
+                  if (prev.includes(item.entry.id)) {
+                    return prev.filter((id) => id !== item.entry.id);
+                  }
+                  if (prev.length >= 2) return [prev[1], item.entry.id];
+                  return [...prev, item.entry.id];
+                });
+              }}
+            />
           )}
           className="flex-1"
           initialNumToRender={20}

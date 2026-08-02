@@ -12,6 +12,7 @@ const BASE_FILTERS: TrafficFilters = {
   scheme: 'ALL',
   captureMode: 'ALL',
   overriddenOnly: false,
+  searchBodies: false,
 };
 
 describe('filterEntries', () => {

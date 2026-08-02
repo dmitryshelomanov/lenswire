@@ -38,6 +38,7 @@ function RootApp() {
             <Stack.Screen name="override/edit" />
             <Stack.Screen name="certificate" />
             <Stack.Screen name="settings" />
+            <Stack.Screen name="compare" options={{ presentation: 'modal' }} />
           </Stack>
           <PortalHost />
         </View>

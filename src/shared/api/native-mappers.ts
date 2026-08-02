@@ -136,6 +136,11 @@ export function asOverrideRule(value: unknown): OverrideRule | null {
   const schemeRaw = String(raw.scheme ?? 'https');
   const scheme = schemeRaw === 'http' ? 'http' : 'https';
   const method = String(raw.method ?? 'GET').toUpperCase() as OverrideRule['method'];
+  const pathMatchRaw = String(raw.pathMatch ?? 'exact');
+  const pathMatch = pathMatchRaw === 'regex' ? 'regex' : 'exact';
+  const bodyModeRaw = String(raw.bodyMode ?? 'body');
+  const bodyMode = bodyModeRaw === 'statusOnly' ? 'statusOnly' : 'body';
+  const delayMs = Math.max(0, Math.min(30_000, asNumber(raw.delayMs, 0) || 0));
   return {
     id: asString(raw.id),
     enabled: raw.enabled !== false,
@@ -145,6 +150,10 @@ export function asOverrideRule(value: unknown): OverrideRule | null {
     host: asString(raw.host),
     path: asString(raw.path, '/') || '/',
     query: asString(raw.query),
+    pathMatch,
+    matchHeaders: asOverrideHeaders(raw.matchHeaders),
+    delayMs,
+    bodyMode,
     status: asNumber(raw.status, 200) || 200,
     contentType: asString(raw.contentType),
     headers: asOverrideHeaders(raw.headers),

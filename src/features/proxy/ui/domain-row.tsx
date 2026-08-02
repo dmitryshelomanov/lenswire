@@ -66,6 +66,8 @@ function DomainRowImpl({ group, pinned, onTogglePin }: Props) {
         ) : null}
         {group.hasBypass ? (
           <Badge label="bypassed" variant="outline" className="shrink-0" />
+        ) : group.hasQuic ? (
+          <Badge label="quic" variant="outline" className="shrink-0" />
         ) : group.hasSkipped ? (
           <Badge label="skipped" variant="outline" className="shrink-0" />
         ) : group.tunnelOnly ? (

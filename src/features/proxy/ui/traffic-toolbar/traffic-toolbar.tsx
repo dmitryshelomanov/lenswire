@@ -66,7 +66,7 @@ export function TrafficToolbar({ showControls = true, showFilters = true }: Prop
             <Input
               value={filters.query}
               onChangeText={(query) => setFilters({ query })}
-              placeholder="Filter by host, path, method, status…"
+              placeholder="Filter by host, path, headers, method…"
               className="min-h-0 w-auto min-w-0 flex-1 border-0 bg-transparent px-0 py-0 shadow-none"
               autoCapitalize="none"
               autoCorrect={false}
@@ -97,6 +97,7 @@ export function TrafficToolbar({ showControls = true, showFilters = true }: Prop
               scheme={(filters.scheme ?? 'ALL') as SchemeFilterValue}
               captureMode={filters.captureMode ?? 'ALL'}
               overriddenOnly={Boolean(filters.overriddenOnly)}
+              searchBodies={Boolean(filters.searchBodies)}
               onChange={setFilters}
             />
           </View>

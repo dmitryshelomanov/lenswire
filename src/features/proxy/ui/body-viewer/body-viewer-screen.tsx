@@ -60,17 +60,7 @@ export function BodyViewerScreen({ title, body, loading, onClose }: BodyViewerSc
     };
   }, []);
 
-  // Fall back to highlighted Pretty when JSON can't be parsed as a tree (e.g. truncated).
-  React.useEffect(() => {
-    if (!isJsonLike) {
-      setMode('raw');
-      return;
-    }
-    if (!showTree) {
-      setMode((m) => (m === 'tree' ? 'pretty' : m));
-    }
-  }, [showTree, isJsonLike]);
-
+  // Fall back via derived activeMode when JSON can't be parsed as a tree (e.g. truncated).
   const activeMode: ViewerMode = !isJsonLike
     ? 'raw'
     : mode === 'tree' && !showTree
@@ -80,12 +70,14 @@ export function BodyViewerScreen({ title, body, loading, onClose }: BodyViewerSc
   // Build pretty text off the critical path so switching tabs doesn't freeze the UI.
   React.useEffect(() => {
     if (activeMode !== 'pretty' || !isJsonLike) {
-      setPrettyPreparing(false);
       return;
     }
     let cancelled = false;
-    setPrettyPreparing(true);
-    setPrettyText(null);
+    queueMicrotask(() => {
+      if (cancelled) return;
+      setPrettyPreparing(true);
+      setPrettyText(null);
+    });
     const task = InteractionManager.runAfterInteractions(() => {
       const next = prettyJsonText(rawText);
       if (!cancelled) {
@@ -99,6 +91,7 @@ export function BodyViewerScreen({ title, body, loading, onClose }: BodyViewerSc
     };
   }, [activeMode, isJsonLike, rawText]);
 
+  const showPrettyPreparing = activeMode === 'pretty' && isJsonLike && prettyPreparing;
   const onTreeCopied = React.useCallback((kind: 'path' | 'value') => {
     setTreeCopied(kind);
     if (treeCopiedReset.current) clearTimeout(treeCopiedReset.current);
@@ -210,7 +203,7 @@ export function BodyViewerScreen({ title, body, loading, onClose }: BodyViewerSc
                 />
               </ScrollView>
             ) : activeMode === 'pretty' && isJsonLike ? (
-              prettyPreparing || prettyText == null ? (
+              showPrettyPreparing || prettyText == null ? (
                 <View className="flex-1 items-center justify-center">
                   <ActivityIndicator />
                 </View>

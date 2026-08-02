@@ -7,6 +7,7 @@ import org.json.JSONObject
 object OverrideRules {
   private const val PREFS = "lenswire_settings"
   private const val KEY = "overrides"
+  private const val MAX_DELAY_MS = 30_000L
 
   @Volatile
   private var cachedJson: String? = null
@@ -23,17 +24,24 @@ object OverrideRules {
     val host: String,
     val path: String,
     val query: String,
+    val pathMatch: String,
+    val matchHeaders: Map<String, String>,
+    val delayMs: Long,
+    val bodyMode: String,
     val status: Int,
     val contentType: String,
     val headers: Map<String, String>,
     val bodyText: String,
     val createdAt: Long,
   ) {
-    fun bodyBytes(): ByteArray = bodyText.toByteArray(Charsets.UTF_8)
+    fun isStatusOnly(): Boolean = bodyMode.equals("statusOnly", ignoreCase = true)
+
+    fun bodyBytes(): ByteArray =
+      if (isStatusOnly()) ByteArray(0) else bodyText.toByteArray(Charsets.UTF_8)
 
     fun responseHeaders(): Map<String, String> {
       val headers = LinkedHashMap<String, String>()
-      if (contentType.isNotBlank()) {
+      if (!isStatusOnly() && contentType.isNotBlank()) {
         headers["Content-Type"] = contentType
       }
       mergeHeaders(headers, this.headers)
@@ -41,6 +49,17 @@ object OverrideRules {
       removeHeaderIgnoreCase(headers, "content-length")
       removeHeaderIgnoreCase(headers, "transfer-encoding")
       return headers
+    }
+
+    fun applyDelay() {
+      val ms = delayMs.coerceIn(0L, MAX_DELAY_MS)
+      if (ms > 0L) {
+        try {
+          Thread.sleep(ms)
+        } catch (_: InterruptedException) {
+          Thread.currentThread().interrupt()
+        }
+      }
     }
   }
 
@@ -81,6 +100,10 @@ object OverrideRules {
             host = obj.optString("host", ""),
             path = obj.optString("path", "/").ifEmpty { "/" },
             query = obj.optString("query", ""),
+            pathMatch = obj.optString("pathMatch", "exact").ifBlank { "exact" },
+            matchHeaders = parseHeaders(obj.optJSONObject("matchHeaders")),
+            delayMs = obj.optLong("delayMs", 0L).coerceIn(0L, MAX_DELAY_MS),
+            bodyMode = obj.optString("bodyMode", "body").ifBlank { "body" },
             status = obj.optInt("status", 200),
             contentType = obj.optString("contentType", ""),
             headers = parseHeaders(obj.optJSONObject("headers")),
@@ -106,6 +129,7 @@ object OverrideRules {
     host: String,
     path: String,
     query: String,
+    requestHeaders: Map<String, String> = emptyMap(),
   ): Rule? {
     val normalizedPath = path.ifEmpty { "/" }
     return load(context).firstOrNull { rule ->
@@ -114,9 +138,44 @@ object OverrideRules {
         rule.method.equals(method, ignoreCase = true) &&
         rule.scheme.equals(scheme, ignoreCase = true) &&
         rule.host.equals(host, ignoreCase = true) &&
-        rule.path == normalizedPath &&
-        rule.query == query
+        pathMatches(rule, normalizedPath) &&
+        queryMatches(rule, query) &&
+        headersMatch(rule.matchHeaders, requestHeaders)
     }
+  }
+
+  private fun pathMatches(rule: Rule, path: String): Boolean {
+    return if (rule.pathMatch.equals("regex", ignoreCase = true)) {
+      try {
+        Regex(rule.path).containsMatchIn(path)
+      } catch (_: Exception) {
+        false
+      }
+    } else {
+      rule.path == path
+    }
+  }
+
+  private fun queryMatches(rule: Rule, query: String): Boolean {
+    if (rule.query.isEmpty()) return true
+    return rule.query == query
+  }
+
+  private fun headersMatch(
+    required: Map<String, String>,
+    actual: Map<String, String>,
+  ): Boolean {
+    if (required.isEmpty()) return true
+    for ((name, expected) in required) {
+      val trimmedName = name.trim()
+      if (trimmedName.isEmpty()) continue
+      val value = actual.entries.firstOrNull { it.key.equals(trimmedName, ignoreCase = true) }?.value
+        ?: return false
+      if (expected.isNotEmpty() && !value.contains(expected, ignoreCase = true)) {
+        return false
+      }
+    }
+    return true
   }
 
   fun rewriteRequest(
@@ -132,7 +191,7 @@ object OverrideRules {
       }
       next[k] = v
     }
-    if (rule.contentType.isNotBlank()) {
+    if (!rule.isStatusOnly() && rule.contentType.isNotBlank()) {
       next["Content-Type"] = rule.contentType
     }
     next["Content-Length"] = body.size.toString()

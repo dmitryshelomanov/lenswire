@@ -29,6 +29,9 @@ declare class LenswireProxyModule extends NativeModule {
   getHttpsDecrypt(): boolean;
   setOverrides(rulesJson: string): void;
   getOverrides(): string;
+  getMitmBypassHosts(): { host: string; cause: string }[];
+  removeMitmBypassHost(host: string): void;
+  clearMitmBypass(): void;
   getDiagnostics(): NativeDiagnostics;
 }
 

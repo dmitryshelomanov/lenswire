@@ -83,6 +83,8 @@ export function reasonLabel(
       return 'ws relay';
     case 'alpn_no_http11':
       return alpnOnlyReasonLabel(alpnProtocols);
+    case 'quic_udp_blocked':
+      return 'quic blocked';
     case 'http_upstream_failed':
       return 'http fail';
     case 'http_upstream_timeout':

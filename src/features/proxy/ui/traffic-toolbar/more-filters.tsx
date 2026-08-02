@@ -23,6 +23,7 @@ export function MoreFilters({
   scheme,
   captureMode,
   overriddenOnly,
+  searchBodies,
   onChange,
 }: {
   active: boolean;
@@ -30,6 +31,7 @@ export function MoreFilters({
   scheme: SchemeFilterValue;
   captureMode: CaptureModeFilterValue;
   overriddenOnly: boolean;
+  searchBodies: boolean;
   onChange: (patch: MoreFiltersPatch) => void;
 }) {
   const [open, setOpen] = React.useState(false);
@@ -89,6 +91,13 @@ export function MoreFilters({
                   active={overriddenOnly}
                   onPress={() => onChange({ overriddenOnly: !overriddenOnly })}
                 />
+                <View className="mt-2">
+                  <FilterChip
+                    label="Search bodies"
+                    active={searchBodies}
+                    onPress={() => onChange({ searchBodies: !searchBodies })}
+                  />
+                </View>
               </View>
             </ScrollView>
             <Button className="mt-3" variant="outline" size="sm" onPress={() => setOpen(false)}>

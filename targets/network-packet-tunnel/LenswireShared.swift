@@ -14,6 +14,9 @@ enum LenswireShared {
   static let httpsDecryptKey = "lenswire.settings.httpsDecrypt"
   static let overridesKey = "lenswire.settings.overrides"
   static let recordingPausedKey = "lenswire.settings.recordingPaused"
+  static let mitmBypassKey = "lenswire.runtime.mitmBypass"
+  /// Pending leaf-identity clears for the packet-tunnel process (app writes, extension drains).
+  static let mitmLeafClearKey = "lenswire.runtime.mitmLeafClear"
   static let caPemFileName = "lenswire-ca.pem"
   static let caCertFileName = "lenswire-ca.cer"
   static let caKeyFileName = "lenswire-ca.key"
@@ -96,19 +99,27 @@ enum LenswireShared {
     let host: String
     let path: String
     let query: String
+    let pathMatch: String
+    let matchHeaders: [String: String]
+    let delayMs: Int
+    let bodyMode: String
     let status: Int
     let contentType: String
     let headers: [String: String]
     let bodyText: String
     let createdAt: Int
 
+    var isStatusOnly: Bool {
+      bodyMode.lowercased() == "statusonly"
+    }
+
     var bodyData: Data {
-      Data(bodyText.utf8)
+      isStatusOnly ? Data() : Data(bodyText.utf8)
     }
 
     var responseHeaders: [String: String] {
       var headers: [String: String] = [:]
-      if !contentType.isEmpty {
+      if !isStatusOnly && !contentType.isEmpty {
         headers["Content-Type"] = contentType
       }
       mergeHeaders(&headers, overrides: self.headers)
@@ -116,6 +127,13 @@ enum LenswireShared {
       removeHeaderIgnoreCase(&headers, name: "content-length")
       removeHeaderIgnoreCase(&headers, name: "transfer-encoding")
       return headers
+    }
+
+    func applyDelay() {
+      let ms = min(max(delayMs, 0), 30_000)
+      if ms > 0 {
+        Thread.sleep(forTimeInterval: Double(ms) / 1000.0)
+      }
     }
   }
 
@@ -138,6 +156,16 @@ enum LenswireShared {
           return raw.isEmpty ? "/" : raw
         }(),
         query: String(describing: obj["query"] ?? ""),
+        pathMatch: {
+          let raw = String(describing: obj["pathMatch"] ?? "exact")
+          return raw.isEmpty ? "exact" : raw
+        }(),
+        matchHeaders: parseOverrideHeaders(obj["matchHeaders"]),
+        delayMs: min(max((obj["delayMs"] as? Int) ?? Int("\(obj["delayMs"] ?? 0)") ?? 0, 0), 30_000),
+        bodyMode: {
+          let raw = String(describing: obj["bodyMode"] ?? "body")
+          return raw.isEmpty ? "body" : raw
+        }(),
         status: (obj["status"] as? Int) ?? Int("\(obj["status"] ?? 200)") ?? 200,
         contentType: String(describing: obj["contentType"] ?? ""),
         headers: parseOverrideHeaders(obj["headers"]),
@@ -187,7 +215,8 @@ enum LenswireShared {
     scheme: String,
     host: String,
     path: String,
-    query: String
+    query: String,
+    requestHeaders: [String: String] = [:]
   ) -> OverrideRule? {
     let normalizedPath = path.isEmpty ? "/" : path
     return loadOverrideRules().first { rule in
@@ -196,9 +225,38 @@ enum LenswireShared {
         && rule.method.caseInsensitiveCompare(method) == .orderedSame
         && rule.scheme.caseInsensitiveCompare(scheme) == .orderedSame
         && rule.host.caseInsensitiveCompare(host) == .orderedSame
-        && rule.path == normalizedPath
-        && rule.query == query
+        && pathMatches(rule: rule, path: normalizedPath)
+        && queryMatches(rule: rule, query: query)
+        && headersMatch(required: rule.matchHeaders, actual: requestHeaders)
     }
+  }
+
+  private static func pathMatches(rule: OverrideRule, path: String) -> Bool {
+    if rule.pathMatch.lowercased() == "regex" {
+      guard let regex = try? NSRegularExpression(pattern: rule.path) else { return false }
+      let range = NSRange(path.startIndex..<path.endIndex, in: path)
+      return regex.firstMatch(in: path, options: [], range: range) != nil
+    }
+    return rule.path == path
+  }
+
+  private static func queryMatches(rule: OverrideRule, query: String) -> Bool {
+    if rule.query.isEmpty { return true }
+    return rule.query == query
+  }
+
+  private static func headersMatch(required: [String: String], actual: [String: String]) -> Bool {
+    if required.isEmpty { return true }
+    for (name, expected) in required {
+      let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+      if trimmed.isEmpty { continue }
+      guard let value = actual.first(where: { $0.key.caseInsensitiveCompare(trimmed) == .orderedSame })?.value
+      else { return false }
+      if !expected.isEmpty && value.range(of: expected, options: .caseInsensitive) == nil {
+        return false
+      }
+    }
+    return true
   }
 
   static func rewriteRequest(
@@ -213,7 +271,7 @@ enum LenswireShared {
       }
       next[key] = value
     }
-    if !rule.contentType.isEmpty {
+    if !rule.isStatusOnly && !rule.contentType.isEmpty {
       next["Content-Type"] = rule.contentType
     }
     let body = rule.bodyData
@@ -608,6 +666,157 @@ enum LenswireShared {
     guard let start = header.range(of: token) else { return "" }
     let tail = header[start.upperBound...]
     return String(tail.prefix { $0 != "\"" })
+  }
+}
+
+/// UDP/443 (QUIC) drop counter + once-per-host capture signal.
+enum QuicUdpBlock {
+  private static let lock = NSLock()
+  private static var drops: Int64 = 0
+  private static var loggedHosts = Set<String>()
+  private static let dropsKey = "lenswire.runtime.quicDrops"
+
+  static func reset() {
+    lock.lock()
+    defer { lock.unlock() }
+    drops = 0
+    loggedHosts.removeAll()
+    LenswireShared.sharedDefaults.set(0, forKey: dropsKey)
+  }
+
+  static func dropCount() -> Int64 {
+    lock.lock()
+    defer { lock.unlock() }
+    let stored = Int64(LenswireShared.sharedDefaults.integer(forKey: dropsKey))
+    return max(drops, stored)
+  }
+
+  static func recordDrop(host: String) {
+    lock.lock()
+    drops += 1
+    let count = drops
+    let key = host.lowercased().isEmpty ? "unknown" : host.lowercased()
+    let shouldLog = loggedHosts.insert(key).inserted
+    lock.unlock()
+    LenswireShared.sharedDefaults.set(count, forKey: dropsKey)
+    guard shouldLog else { return }
+    LenswireShared.appendCapture([
+      "id": UUID().uuidString,
+      "startedAt": Int(Date().timeIntervalSince1970 * 1000),
+      "method": "CONNECT",
+      "scheme": "https",
+      "host": key,
+      "path": "/",
+      "query": "",
+      "status": 0,
+      "requestHeaders": [String: String](),
+      "responseHeaders": [String: String](),
+      "requestBody": ["kind": "empty", "size": 0],
+      "responseBody": ["kind": "empty", "size": 0],
+      "timing": [
+        "dnsMs": 0, "connectMs": 0, "tlsMs": 0, "ttfbMs": 0, "downloadMs": 0, "totalMs": 1,
+      ],
+      "reasonCode": "quic_udp_blocked",
+      "hostnameSource": "udp",
+      "hostnameConfidence": "medium",
+      "rawTarget": "\(key):443/udp",
+      "connectTarget": "\(key):443",
+      "connectHost": key,
+      "connectPort": 443,
+      "effectiveHost": key,
+      "captureMode": "tunnel",
+      "httpPayloadAvailable": false,
+      "captureSummary":
+        "UDP/443 (QUIC) blocked — browser should fall back to TCP. QUIC payload is not captured.",
+    ])
+  }
+}
+
+/// Session MITM bypass map shared via App Group (host lowercase → cause).
+enum MitmBypassStore {
+  private static let lock = NSLock()
+
+  private static var map: [String: String] {
+    get {
+      (LenswireShared.sharedDefaults.dictionary(forKey: LenswireShared.mitmBypassKey) as? [String: String]) ?? [:]
+    }
+    set {
+      LenswireShared.sharedDefaults.set(newValue, forKey: LenswireShared.mitmBypassKey)
+    }
+  }
+
+  static func list() -> [[String: String]] {
+    lock.lock()
+    defer { lock.unlock() }
+    return map.keys.sorted().map { host in
+      ["host": host, "cause": map[host] ?? ""]
+    }
+  }
+
+  static func cause(for host: String) -> String? {
+    lock.lock()
+    defer { lock.unlock() }
+    return map[host.lowercased()]
+  }
+
+  static func contains(_ host: String) -> Bool {
+    lock.lock()
+    defer { lock.unlock() }
+    return map[host.lowercased()] != nil
+  }
+
+  static func add(_ host: String, cause: String) {
+    lock.lock()
+    defer { lock.unlock() }
+    let key = host.lowercased()
+    var next = map
+    if next[key] == nil {
+      next[key] = cause
+      map = next
+    }
+  }
+
+  static func remove(_ host: String) {
+    lock.lock()
+    defer { lock.unlock() }
+    let key = host.lowercased()
+    var next = map
+    next.removeValue(forKey: key)
+    map = next
+    enqueueLeafClearLocked(hosts: [key], clearAll: false)
+  }
+
+  static func clear() {
+    lock.lock()
+    defer { lock.unlock() }
+    map = [:]
+    enqueueLeafClearLocked(hosts: [], clearAll: true)
+  }
+
+  /// Extension drains pending leaf-identity clears written by the app process.
+  static func consumeLeafClearCommands() -> (clearAll: Bool, hosts: [String]) {
+    lock.lock()
+    defer { lock.unlock() }
+    let raw = LenswireShared.sharedDefaults.dictionary(forKey: LenswireShared.mitmLeafClearKey) ?? [:]
+    LenswireShared.sharedDefaults.removeObject(forKey: LenswireShared.mitmLeafClearKey)
+    let clearAll = (raw["clearAll"] as? Bool) ?? false
+    let hosts = (raw["hosts"] as? [String]) ?? []
+    return (clearAll, hosts)
+  }
+
+  private static func enqueueLeafClearLocked(hosts: [String], clearAll: Bool) {
+    var raw = LenswireShared.sharedDefaults.dictionary(forKey: LenswireShared.mitmLeafClearKey) ?? [:]
+    let alreadyClearAll = (raw["clearAll"] as? Bool) ?? false
+    if clearAll || alreadyClearAll {
+      raw["clearAll"] = true
+      raw["hosts"] = [String]()
+    } else {
+      var pending = Set((raw["hosts"] as? [String]) ?? [])
+      pending.formUnion(hosts)
+      raw["clearAll"] = false
+      raw["hosts"] = Array(pending)
+    }
+    LenswireShared.sharedDefaults.set(raw, forKey: LenswireShared.mitmLeafClearKey)
   }
 }
 

@@ -13,6 +13,18 @@ final class CertificateAuthority {
     let fingerprint: String
   }
 
+  func clearLeaf(for host: String) {
+    lock.lock()
+    defer { lock.unlock() }
+    leafCache.removeValue(forKey: host.lowercased())
+  }
+
+  func clearAllLeaves() {
+    lock.lock()
+    defer { lock.unlock() }
+    leafCache.removeAll()
+  }
+
   func isReady() -> Bool {
     FileManager.default.fileExists(atPath: LenswireShared.caCertURL.path)
       && (Self.keychainHasCaKey() || FileManager.default.fileExists(atPath: LenswireShared.caKeyURL.path))
@@ -28,6 +40,7 @@ final class CertificateAuthority {
     defer { lock.unlock() }
 
     leafCache.removeAll()
+    MitmBypassStore.clear()
 
     let pair = try X509.generateRSAKeyPair()
     let certDER = try X509.createCACertificate(privateKey: pair.privateKey, publicKey: pair.publicKey)
@@ -146,12 +159,13 @@ final class CertificateAuthority {
     }
   }
 
-  /// SecIdentity for MITM leaf cert for `host` (cached).
+  /// SecIdentity for MITM leaf cert for `host` (cached under lowercase host).
   func leafIdentity(for host: String) throws -> SecIdentity {
     lock.lock()
     defer { lock.unlock() }
 
-    if let cached = leafCache[host], cached.expires > Date() {
+    let key = host.lowercased()
+    if let cached = leafCache[key], cached.expires > Date() {
       return cached.identity
     }
 
@@ -167,9 +181,9 @@ final class CertificateAuthority {
     let identity = try Self.makeIdentity(
       certificate: leafCert,
       privateKey: pair.privateKey,
-      label: "lenswire.leaf.\(host)"
+      label: "lenswire.leaf.\(key)"
     )
-    leafCache[host] = (identity, Date().addingTimeInterval(60 * 60 * 12))
+    leafCache[key] = (identity, Date().addingTimeInterval(60 * 60 * 12))
     return identity
   }
 

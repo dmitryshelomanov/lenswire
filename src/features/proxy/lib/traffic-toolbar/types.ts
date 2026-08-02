@@ -12,9 +12,15 @@ export type CaptureModeFilterValue = TrafficFilters['captureMode'];
 
 export type ToolbarFilters = Pick<
   TrafficFilters,
-  'method' | 'resourceType' | 'statusClass' | 'scheme' | 'captureMode' | 'overriddenOnly'
+  | 'method'
+  | 'resourceType'
+  | 'statusClass'
+  | 'scheme'
+  | 'captureMode'
+  | 'overriddenOnly'
+  | 'searchBodies'
 >;
 
 export type MoreFiltersPatch = Partial<
-  Pick<TrafficFilters, 'statusClass' | 'scheme' | 'captureMode' | 'overriddenOnly'>
+  Pick<TrafficFilters, 'statusClass' | 'scheme' | 'captureMode' | 'overriddenOnly' | 'searchBodies'>
 >;

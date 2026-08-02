@@ -1,5 +1,6 @@
 package expo.modules.lenswireproxy
 
+import android.content.Context
 import android.util.Log
 import java.io.BufferedInputStream
 import java.io.BufferedOutputStream
@@ -22,6 +23,7 @@ class SocksBridgeServer(
   private val localProxyPort: Int,
   private val listenPort: Int = 1080,
   private val protectSocket: ((Socket) -> Boolean)? = null,
+  private val appContext: Context? = null,
 ) {
   private val running = AtomicBoolean(false)
   private var serverSocket: ServerSocket? = null
@@ -252,6 +254,11 @@ class SocksBridgeServer(
     if (idx + 2 > offset + len) return
     val destPort = ((data[idx].toInt() and 0xff) shl 8) or (data[idx + 1].toInt() and 0xff)
     idx += 2
+    if (destPort == 443) {
+      QuicUdpBlock.recordDrop(appContext, destHost)
+      Log.d(TAG, "UDP/443 blocked (QUIC) host=$destHost")
+      return
+    }
     val payloadLen = offset + len - idx
     if (payloadLen < 0) return
     val payload = data.copyOfRange(idx, idx + payloadLen)

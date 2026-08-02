@@ -46,6 +46,7 @@ export type CaptureReasonCode =
   | 'websocket_relay'
   | 'mitm_error'
   | 'alpn_no_http11'
+  | 'quic_udp_blocked'
   | 'upstream_connect_failed'
   | 'http_upstream_failed'
   | 'http_upstream_timeout'
@@ -65,6 +66,9 @@ export type OverrideKind = 'request' | 'response';
 
 export type OverrideApplied = OverrideKind;
 
+export type OverridePathMatch = 'exact' | 'regex';
+export type OverrideBodyMode = 'body' | 'statusOnly';
+
 export type OverrideRule = {
   id: string;
   enabled: boolean;
@@ -74,6 +78,14 @@ export type OverrideRule = {
   host: string;
   path: string;
   query: string;
+  /** Path matching mode; default exact. */
+  pathMatch: OverridePathMatch;
+  /** Request headers that must be present (case-insensitive name; value substring). */
+  matchHeaders: HeaderMap;
+  /** Delay before mock/rewrite response; capped in native (ms). */
+  delayMs: number;
+  /** Response mock: body vs status+headers only. */
+  bodyMode: OverrideBodyMode;
   /** Response mock status; unused for request rules (default 200). */
   status: number;
   contentType: string;
@@ -164,6 +176,8 @@ export type TrafficFilters = {
   scheme: 'ALL' | 'http' | 'https';
   captureMode: 'ALL' | 'http' | 'mitm' | 'tunnel';
   overriddenOnly: boolean;
+  /** When true, toolbar also scans text bodies via getCapture (async). */
+  searchBodies: boolean;
 };
 
 export function statusClassOf(status: number): StatusClass {

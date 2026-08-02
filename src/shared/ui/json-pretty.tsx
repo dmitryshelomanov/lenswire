@@ -79,10 +79,11 @@ export function JsonPretty({ text }: { text: string }) {
   const dark = resolvedTheme === 'dark';
   const lines = React.useMemo(() => splitForRender(text), [text]);
   const [visibleCount, setVisibleCount] = React.useState(INITIAL_LINES);
-
-  React.useEffect(() => {
+  const [prevText, setPrevText] = React.useState(text);
+  if (text !== prevText) {
+    setPrevText(text);
     setVisibleCount(INITIAL_LINES);
-  }, [text]);
+  }
 
   const visibleLines = lines.slice(0, visibleCount);
   const hasMore = visibleCount < lines.length;

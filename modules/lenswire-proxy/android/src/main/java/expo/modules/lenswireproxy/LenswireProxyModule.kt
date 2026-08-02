@@ -42,10 +42,14 @@ class LenswireProxyModule : Module() {
 
     Function("getDiagnostics") {
       val status = VpnController.status()
+      val runtime = ProxyRuntime.diagnostics.toMutableMap()
+      runtime["quicDrops"] = QuicUdpBlock.dropCount()
+      runtime["quicUdpBlocked"] = true
+      runtime["quicDecrypt"] = false
       mapOf(
         "status" to status,
         "lastError" to ProxyRuntime.lastError,
-        "runtime" to ProxyRuntime.diagnostics,
+        "runtime" to runtime,
       )
     }
 
@@ -159,6 +163,18 @@ class LenswireProxyModule : Module() {
 
     Function("getOverrides") {
       OverrideRules.getJson(context)
+    }
+
+    Function("getMitmBypassHosts") {
+      LenswireVpnService.proxyServer?.listMitmBypass() ?: emptyList<Map<String, String>>()
+    }
+
+    Function("removeMitmBypassHost") { host: String ->
+      LenswireVpnService.proxyServer?.removeMitmBypass(host)
+    }
+
+    Function("clearMitmBypass") {
+      LenswireVpnService.proxyServer?.clearMitmBypass()
     }
   }
 

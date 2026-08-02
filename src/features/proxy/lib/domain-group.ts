@@ -11,6 +11,7 @@ export type DomainGroup = {
   tunnelOnly: boolean;
   hasBypass: boolean;
   hasSkipped: boolean;
+  hasQuic: boolean;
 };
 
 const SESSION_BYPASS_REASONS = new Set([
@@ -31,6 +32,10 @@ export function entrySignalsSkipped(entry: TrafficEntry): boolean {
   return entry.reasonCode === 'alpn_no_http11';
 }
 
+export function entrySignalsQuic(entry: TrafficEntry): boolean {
+  return entry.reasonCode === 'quic_udp_blocked';
+}
+
 type Acc = {
   group: DomainGroup;
   counts: Map<string, number>;
@@ -49,6 +54,7 @@ export function groupByDomain(entries: TrafficEntry[]): DomainGroup[] {
     const isTunnel = entry.captureMode === 'tunnel';
     const isBypass = entrySignalsBypass(entry);
     const isSkipped = entrySignalsSkipped(entry);
+    const isQuic = entrySignalsQuic(entry);
     const existing = byHost.get(entry.host);
 
     if (existing) {
@@ -60,6 +66,7 @@ export function groupByDomain(entries: TrafficEntry[]): DomainGroup[] {
       if (!isTunnel) existing.group.tunnelOnly = false;
       if (isBypass) existing.group.hasBypass = true;
       if (isSkipped) existing.group.hasSkipped = true;
+      if (isQuic) existing.group.hasQuic = true;
       const prev = existing.counts.get(counterKey) ?? 0;
       const nextCount = prev + 1;
       existing.counts.set(counterKey, nextCount);
@@ -81,6 +88,7 @@ export function groupByDomain(entries: TrafficEntry[]): DomainGroup[] {
       tunnelOnly: isTunnel,
       hasBypass: isBypass,
       hasSkipped: isSkipped,
+      hasQuic: isQuic,
     };
     const counts = new Map<string, number>();
     counts.set(counterKey, 1);
