@@ -1,0 +1,92 @@
+name: Bug report
+description: Something is broken or behaves unexpectedly
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. Fill in as much as you can — especially platform and CA/decrypt details.
+
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Platform
+      options:
+        - iOS
+        - Android
+        - Both
+        - Other / tooling
+    validations:
+      required: true
+
+  - type: input
+    id: os-version
+    attributes:
+      label: OS version
+      description: e.g. iOS 18.2, Android 14 (API 34), emulator vs physical device
+      placeholder: iOS 18.2 / physical iPhone
+    validations:
+      required: true
+
+  - type: dropdown
+    id: decrypt
+    attributes:
+      label: HTTPS decryption
+      options:
+        - On
+        - Off
+        - N/A
+    validations:
+      required: true
+
+  - type: dropdown
+    id: ca-trust
+    attributes:
+      label: CA trust type
+      description: How Lenswire CA is trusted on the device
+      options:
+        - Not installed
+        - User CA (Install CA / profile)
+        - System CA (android:trust-ca / rooted AVD)
+        - iOS Certificate Trust Settings enabled
+        - Unknown / N/A
+    validations:
+      required: true
+
+  - type: input
+    id: reason-code
+    attributes:
+      label: reasonCode / bypass
+      description: Tunnel-only row reason if shown (e.g. trust?, tls off, no sni, alpn_no_http11) or session bypass note
+      placeholder: trust? / none
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: Minimal steps from a clean Start/Stop if possible
+      placeholder: |
+        1. Generate CA → …
+        2. Start VPN → …
+        3. Open …
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: Logs / screenshots / app version
+      description: Optional — relevant logs, screenshots, Lenswire version / commit

@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Docs & build notes
+    url: https://github.com/dmitryshelomanov/lenswire/blob/main/CONTRIBUTING.md
+    about: Prerequisites, iOS/Android build friction, tests, and PR expectations
