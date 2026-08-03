@@ -7,6 +7,7 @@ import { getEntryBadgeMeta } from '@/entities/traffic/entry-badges';
 import { grpcBadgeLabel } from '@/entities/traffic/grpc';
 import {
   captureModeLabel,
+  entryDisplayScheme,
   formatBytes,
   formatDuration,
   type TrafficEntry,
@@ -104,8 +105,16 @@ function TrafficRowImpl({
         <Text variant="muted" className="font-mono text-xs">
           {formatBytes(entry.responseBody.size)}
         </Text>
+        {(entry.wsFrameCount ?? 0) > 0 ||
+        entry.reasonCode === 'websocket_frames' ||
+        entry.status === 101 ? (
+          <Text variant="muted" className="font-mono text-xs">
+            ws:{entry.wsFrameCount ?? 0}
+            {entry.wsClosed ? ' closed' : ' open'}
+          </Text>
+        ) : null}
         <Text variant="muted" className="font-mono text-xs uppercase">
-          {entry.scheme}
+          {entryDisplayScheme(entry)}
         </Text>
         {entry.hostnameSource ? (
           <Text variant="muted" className="font-mono text-xs">

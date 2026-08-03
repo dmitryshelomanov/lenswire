@@ -33,6 +33,13 @@ function sameSummary(a: TrafficEntry, b: TrafficEntry): boolean {
     a.timing?.totalMs === b.timing?.totalMs &&
     a.requestBody?.size === b.requestBody?.size &&
     a.responseBody?.size === b.responseBody?.size &&
-    a.httpPayloadAvailable === b.httpPayloadAvailable
+    a.httpPayloadAvailable === b.httpPayloadAvailable &&
+    (a.wsFrameCount ?? 0) === (b.wsFrameCount ?? 0) &&
+    Boolean(a.wsFramesOmitted) === Boolean(b.wsFramesOmitted) &&
+    Boolean(a.wsCompressed) === Boolean(b.wsCompressed) &&
+    Boolean(a.wsClosed) === Boolean(b.wsClosed) &&
+    (a.endedAt ?? 0) === (b.endedAt ?? 0) &&
+    (a.wsEndReason ?? '') === (b.wsEndReason ?? '') &&
+    (a.wsCloseCode ?? 0) === (b.wsCloseCode ?? 0)
   );
 }

@@ -150,6 +150,7 @@ describe('reasonLabel', () => {
     expect(reasonLabel('alpn_no_http11', ['h3'])).toBe('h3-only');
     expect(reasonLabel('mitm_websocket')).toBe('websocket');
     expect(reasonLabel('websocket_relay')).toBe('ws relay');
+    expect(reasonLabel('websocket_frames')).toBe('ws');
     expect(reasonLabel('http_upstream_failed')).toBe('http fail');
     expect(reasonLabel('http_upstream_timeout')).toBe('http timeout');
     expect(reasonLabel('http_dns_failed')).toBe('dns fail');

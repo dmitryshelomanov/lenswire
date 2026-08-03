@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
+import { entryDisplayScheme, entryUrl } from '@/entities/traffic/types';
+
 import { asOverrideRule, mapNativeCapture } from './native-mappers';
 
 describe('mapNativeCapture', () => {
@@ -39,6 +41,62 @@ describe('mapNativeCapture', () => {
     expect(entry.tlsNegotiatedAlpn).toBe('http/1.1');
     expect(entry.upstreamHttpVersion).toBe('HTTP/1.1');
     expect(entry.bypassCause).toBe('mitm_handshake_failed');
+  });
+
+  it('maps websocket frames and counts from native payload', () => {
+    const entry = mapNativeCapture({
+      id: 'ws-1',
+      scheme: 'https',
+      host: 'rtc.example.com',
+      path: '/socket.io/',
+      query: 'EIO=4&transport=websocket',
+      status: 101,
+      reasonCode: 'websocket_frames',
+      wsFrameCount: 2,
+      wsFramesOmitted: false,
+      wsClosed: true,
+      endedAt: 1_700_000_000_500,
+      wsEndReason: 'close_frame',
+      wsCloseCode: 1000,
+      wsFrames: [
+        {
+          id: 'f1',
+          at: 1,
+          dir: 'client',
+          opcode: 'text',
+          size: 5,
+          payload: { kind: 'text', text: 'hello', size: 5 },
+        },
+        {
+          id: 'f2',
+          at: 2,
+          dir: 'server',
+          opcode: 'binary',
+          size: 3,
+          payload: { kind: 'binary', size: 3, previewBase64: 'YWJj' },
+        },
+      ],
+      requestBody: { kind: 'empty', size: 0 },
+      responseBody: { kind: 'empty', size: 0 },
+      timing: { totalMs: 1 },
+    });
+
+    expect(entry.wsFrameCount).toBe(2);
+    expect(entry.wsFramesOmitted).toBe(false);
+    expect(entry.wsClosed).toBe(true);
+    expect(entry.endedAt).toBe(1_700_000_000_500);
+    expect(entry.wsEndReason).toBe('close_frame');
+    expect(entry.wsCloseCode).toBe(1000);
+    expect(entry.wsFrames).toHaveLength(2);
+    expect(entry.wsFrames?.[0]).toMatchObject({
+      id: 'f1',
+      dir: 'client',
+      opcode: 'text',
+      payload: { kind: 'text', text: 'hello', size: 5 },
+    });
+    expect(entry.wsFrames?.[1]?.payload.kind).toBe('binary');
+    expect(entryDisplayScheme(entry)).toBe('wss');
+    expect(entryUrl(entry)).toBe('wss://rtc.example.com/socket.io/?EIO=4&transport=websocket');
   });
 
   it('accepts body stubs without text or preview payloads', () => {

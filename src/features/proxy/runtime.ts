@@ -1,4 +1,4 @@
-import { Alert, PermissionsAndroid, Platform } from 'react-native';
+import { Alert, AppState, PermissionsAndroid, Platform } from 'react-native';
 
 import type {
   CertificateInfo,
@@ -87,6 +87,7 @@ const pinsSlice = createRuntimeSlice<string[]>([]);
 
 let bootstrapped = false;
 let lastCapturesRevision: number | null = null;
+let appStateSub: { remove: () => void } | null = null;
 
 function errorMessage(error: unknown): string {
   if (error instanceof Error && error.message) return error.message;
@@ -158,12 +159,12 @@ function patchControl(patch: Partial<ControlSlice>): void {
 
 async function refreshCaptures(force = false): Promise<void> {
   try {
-    const revision = getCapturesRevision();
+    const revisionBefore = getCapturesRevision();
     if (
       !force &&
-      revision !== null &&
+      revisionBefore !== null &&
       lastCapturesRevision !== null &&
-      revision === lastCapturesRevision
+      revisionBefore === lastCapturesRevision
     ) {
       const nextStatus = getProxyStatus();
       if (nextStatus !== controlSlice.getSnapshot().status) {
@@ -172,12 +173,24 @@ async function refreshCaptures(force = false): Promise<void> {
       return;
     }
     const next = await getCaptures();
-    lastCapturesRevision = revision;
+    // Adopt revision after the read so updates that landed during getCaptures are not skipped.
+    lastCapturesRevision = getCapturesRevision() ?? revisionBefore;
     const prev = entriesSlice.getSnapshot();
     entriesSlice.set(mergeCaptures(prev, next));
     const nextStatus = getProxyStatus();
     if (nextStatus !== controlSlice.getSnapshot().status) {
       patchControl({ status: nextStatus });
+    }
+    // If revision moved again while we held the list, fetch once more (WS frames flush often).
+    const revisionNow = getCapturesRevision();
+    if (
+      revisionNow !== null &&
+      lastCapturesRevision !== null &&
+      revisionNow !== lastCapturesRevision
+    ) {
+      const newer = await getCaptures();
+      lastCapturesRevision = getCapturesRevision() ?? revisionNow;
+      entriesSlice.set(mergeCaptures(entriesSlice.getSnapshot(), newer));
     }
   } catch {
     // Native module may be unavailable; keep previous entries.
@@ -247,6 +260,16 @@ export function ensureProxyRuntime(): void {
     controlSlice.getSnapshot().status === 'listening' ||
       controlSlice.getSnapshot().status === 'connecting',
   );
+  // JS timers pause in background; force a catch-up when returning from the browser.
+  if (!appStateSub) {
+    appStateSub = AppState.addEventListener('change', (state) => {
+      if (state !== 'active') return;
+      const status = controlSlice.getSnapshot().status;
+      if (status !== 'listening' && status !== 'connecting') return;
+      void refreshCaptures(true);
+      polling.kick();
+    });
+  }
 }
 
 async function ensureAndroidNotificationPermission(): Promise<void> {
@@ -362,11 +385,9 @@ export function getEntry(id: string): TrafficEntry | undefined {
 }
 
 export async function loadFullEntry(id: string): Promise<TrafficEntry | null> {
-  try {
-    return await getCapture(id);
-  } catch {
-    return getEntry(id) ?? null;
-  }
+  // Returns null on failure — callers must not treat list summaries as full captures
+  // (summaries omit wsFrames / body payloads).
+  return getCapture(id);
 }
 
 export const proxyRuntime = {

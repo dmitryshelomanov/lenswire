@@ -81,6 +81,8 @@ export function reasonLabel(
       return 'websocket';
     case 'websocket_relay':
       return 'ws relay';
+    case 'websocket_frames':
+      return 'ws';
     case 'alpn_no_http11':
       return alpnOnlyReasonLabel(alpnProtocols);
     case 'quic_udp_blocked':

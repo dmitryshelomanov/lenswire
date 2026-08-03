@@ -44,6 +44,7 @@ export type CaptureReasonCode =
   | 'mitm_no_request'
   | 'mitm_websocket'
   | 'websocket_relay'
+  | 'websocket_frames'
   | 'mitm_error'
   | 'alpn_no_http11'
   | 'quic_udp_blocked'
@@ -53,6 +54,19 @@ export type CaptureReasonCode =
   | 'http_dns_failed'
   | 'http_cleartext_blocked'
   | string;
+
+export type WsFrameDirection = 'client' | 'server';
+
+export type WsFrameOpcode = 'text' | 'binary' | 'ping' | 'pong' | 'close' | 'continuation' | string;
+
+export type WsFrame = {
+  id: string;
+  at: number;
+  dir: WsFrameDirection;
+  opcode: WsFrameOpcode;
+  size: number;
+  payload: TrafficBody;
+};
 
 export type HostnameSource = 'sni' | 'connect' | 'host_header' | 'ip' | string;
 
@@ -138,6 +152,22 @@ export type TrafficEntry = {
   upstreamHttpVersion?: string | null;
   /** Why host entered session MITM bypass (mitm_handshake_failed, mitm_unsupported, …). */
   bypassCause?: string | null;
+  /** Inspected WebSocket messages (read-only); full list on detail load only. */
+  wsFrames?: WsFrame[] | null;
+  /** Frame count for list summaries (full `wsFrames` omitted from summaries). */
+  wsFrameCount?: number | null;
+  /** True when frame cap was hit and later messages were dropped. */
+  wsFramesOmitted?: boolean | null;
+  /** True when RSV/extension (e.g. permessage-deflate) was observed; payloads may be binary. */
+  wsCompressed?: boolean | null;
+  /** True when the WebSocket pipe ended (Close frame, EOF, or error). */
+  wsClosed?: boolean | null;
+  /** When the WebSocket session ended (epoch ms). */
+  endedAt?: number | null;
+  /** Why the session ended: close_frame | eof | error. */
+  wsEndReason?: string | null;
+  /** RFC 6455 close status code when available. */
+  wsCloseCode?: number | null;
 };
 
 export type ProxyStatus = 'stopped' | 'listening' | 'connecting' | 'error';
@@ -200,7 +230,20 @@ export function formatDuration(ms: number): string {
 
 export function entryUrl(entry: TrafficEntry): string {
   const q = entry.query ? `?${entry.query}` : '';
-  return `${entry.scheme}://${entry.host}${entry.path}${q}`;
+  return `${entryDisplayScheme(entry)}://${entry.host}${entry.path}${q}`;
+}
+
+/** Display scheme: WebSocket upgrades show as ws/wss even though native stores http/https. */
+export function entryDisplayScheme(entry: TrafficEntry): 'http' | 'https' | 'ws' | 'wss' {
+  const isWs =
+    entry.status === 101 ||
+    entry.reasonCode === 'websocket_frames' ||
+    entry.reasonCode === 'websocket_relay' ||
+    entry.reasonCode === 'mitm_websocket' ||
+    (entry.wsFrameCount ?? 0) > 0 ||
+    (entry.wsFrames?.length ?? 0) > 0;
+  if (!isWs) return entry.scheme === 'https' ? 'https' : 'http';
+  return entry.scheme === 'https' ? 'wss' : 'ws';
 }
 
 export function captureModeLabel(mode: CaptureMode | undefined): string {

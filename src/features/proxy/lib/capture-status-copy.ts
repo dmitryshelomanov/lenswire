@@ -9,7 +9,7 @@ export type CaptureStatusCopy = {
 
 /** One-line capability limits — reuse everywhere users wait or learn capture. */
 export const CAPTURE_LIMITS_LINE =
-  'Decrypts HTTP/1.1 after CA trust; H2-only, QUIC, pinned apps stay tunnel.';
+  'Decrypts HTTP/1.1 after CA trust; WS frames read-only; H2-only, QUIC, pinned apps stay tunnel.';
 
 export const CAPTURE_STATUSES_INTRO = {
   title: 'Capture statuses',

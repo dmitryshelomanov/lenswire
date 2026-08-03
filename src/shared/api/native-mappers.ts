@@ -162,6 +162,26 @@ export function asOverrideRule(value: unknown): OverrideRule | null {
   };
 }
 
+function asWsFrames(value: unknown): TrafficEntry['wsFrames'] {
+  if (!Array.isArray(value)) return null;
+  const out: NonNullable<TrafficEntry['wsFrames']> = [];
+  for (const item of value) {
+    if (!item || typeof item !== 'object') continue;
+    const raw = item as Record<string, unknown>;
+    const dirRaw = String(raw.dir ?? '');
+    const dir = dirRaw === 'server' ? 'server' : 'client';
+    out.push({
+      id: asString(raw.id, `${out.length}`),
+      at: asNumber(raw.at, 0),
+      dir,
+      opcode: asString(raw.opcode, 'binary'),
+      size: asNumber(raw.size, 0),
+      payload: asBody(raw.payload),
+    });
+  }
+  return out;
+}
+
 export function mapNativeCapture(raw: Record<string, unknown>): TrafficEntry {
   return {
     id: asString(raw.id),
@@ -204,5 +224,13 @@ export function mapNativeCapture(raw: Record<string, unknown>): TrafficEntry {
     tlsNegotiatedAlpn: asNullableString(raw.tlsNegotiatedAlpn),
     upstreamHttpVersion: asNullableString(raw.upstreamHttpVersion),
     bypassCause: asNullableString(raw.bypassCause),
+    wsFrames: asWsFrames(raw.wsFrames),
+    wsFrameCount: asNullableNumber(raw.wsFrameCount),
+    wsFramesOmitted: asNullableBoolean(raw.wsFramesOmitted),
+    wsCompressed: asNullableBoolean(raw.wsCompressed),
+    wsClosed: asNullableBoolean(raw.wsClosed),
+    endedAt: asNullableNumber(raw.endedAt),
+    wsEndReason: asNullableString(raw.wsEndReason),
+    wsCloseCode: asNullableNumber(raw.wsCloseCode),
   };
 }

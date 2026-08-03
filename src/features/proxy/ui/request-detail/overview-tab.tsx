@@ -66,6 +66,25 @@ export function OverviewTab({ entry }: { entry: TrafficEntry }) {
         />
       ) : null}
       <MetaRow label="HTTP payload" value={httpPayloadLabel(entry)} />
+      {(entry.wsFrameCount ?? entry.wsFrames?.length ?? 0) > 0 ||
+      entry.reasonCode === 'websocket_frames' ||
+      entry.status === 101 ? (
+        <MetaRow
+          label="WebSocket"
+          value={
+            entry.wsClosed
+              ? [
+                  'closed',
+                  entry.wsEndReason,
+                  entry.wsCloseCode != null ? `code=${entry.wsCloseCode}` : null,
+                  `${entry.wsFrameCount ?? entry.wsFrames?.length ?? 0} msgs`,
+                ]
+                  .filter(Boolean)
+                  .join(' · ')
+              : `open · ${entry.wsFrameCount ?? entry.wsFrames?.length ?? 0} msgs`
+          }
+        />
+      ) : null}
       {entry.captureSummary ? (
         <MetaRow label="Capture summary" value={entry.captureSummary} />
       ) : null}

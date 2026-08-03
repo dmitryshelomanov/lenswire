@@ -13,6 +13,16 @@ export { contentTypeFromHeaders, headersFromEntry } from '../lib/override-seed';
 export function canCreateOverride(entry: TrafficEntry): boolean {
   if (!isInspectable(entry)) return false;
   if (entry.method === 'CONNECT') return false;
+  if (entry.status === 101) return false;
+  if (
+    entry.reasonCode === 'websocket_frames' ||
+    entry.reasonCode === 'websocket_relay' ||
+    entry.reasonCode === 'mitm_websocket'
+  ) {
+    return false;
+  }
+
+  if ((entry.wsFrames?.length ?? 0) > 0 || (entry.wsFrameCount ?? 0) > 0) return false;
   return true;
 }
 

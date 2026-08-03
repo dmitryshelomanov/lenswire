@@ -32,31 +32,49 @@ const MITM_ERROR_HINT =
   'After TLS handshake the client sent non-HTTP/1.1 (or an unsupported method). Check Capture summary and Request for protocol guess + byte preview (e.g. HTTP/2 PRI, binary).';
 
 const MITM_UNSUPPORTED_HTTP2_HINT =
-  'Client sent HTTP/2 after MITM handshake (PRI preface). Lenswire only terminates HTTP/1.1; this connection was closed and the host was bypassed. Later connects go tunnel-only until you Stop VPN.';
+  'Client sent HTTP/2 after MITM handshake (PRI preface). Lenswire only terminates HTTP/1.1; this connection was closed. If the host was added to session bypass, later connects stay tunnel-only until you Stop VPN.';
+
+const MITM_UNSUPPORTED_HTTP2_HINT_NO_BYPASS =
+  'Client sent HTTP/2 after MITM handshake (PRI preface). Lenswire only terminates HTTP/1.1; this connection was closed. The host was not added to session bypass, so later HTTP/1.1 or WebSocket MITM can still run.';
 
 const MITM_UNSUPPORTED_BINARY_HINT =
-  'Client sent non-HTTP/binary data after MITM handshake. This connection was closed and the host was bypassed; later connects go tunnel-only until you Stop VPN.';
+  'Client sent non-HTTP/binary data after MITM handshake. This connection was closed. If the host was added to session bypass, later connects stay tunnel-only until you Stop VPN.';
+
+const MITM_UNSUPPORTED_BINARY_HINT_NO_BYPASS =
+  'Client sent non-HTTP/binary data after MITM handshake. This connection was closed. The host was not added to session bypass.';
 
 const MITM_UNSUPPORTED_METHOD_HINT =
-  'Unsupported HTTP method after MITM. This connection was closed and the host was bypassed; later connects go tunnel-only until you Stop VPN.';
+  'Unsupported HTTP method after MITM. This connection was closed. If the host was added to session bypass, later connects stay tunnel-only until you Stop VPN.';
+
+const MITM_UNSUPPORTED_METHOD_HINT_NO_BYPASS =
+  'Unsupported HTTP method after MITM. This connection was closed. The host was not added to session bypass.';
 
 const MITM_UNSUPPORTED_HINT =
   'Unsupported protocol after MITM. This connection was closed and the host was added to the session bypass list. Later connects go tunnel-only until you Stop VPN. Check Capture summary for guess=… details.';
 
+const MITM_UNSUPPORTED_HINT_NO_BYPASS =
+  'Unsupported protocol after MITM. This connection was closed. The host was not added to session bypass. Check Capture summary for guess=… details.';
+
 const MITM_NO_REQUEST_TIMEOUT_HINT =
-  'No HTTP request after MITM handshake (read timeout). This connection was closed and the host was bypassed; later connects go tunnel-only until you Stop VPN.';
+  'No HTTP request after MITM handshake (read timeout). This connection was closed; the host was not added to session bypass, so later connects can still be MITM’d.';
 
 const MITM_NO_REQUEST_EOF_HINT =
   'Client closed the connection after MITM handshake without sending an HTTP request (0 bytes). This connection was closed; the host was not added to session bypass, so later connects can still be MITM’d.';
 
 const MITM_NO_REQUEST_HINT =
-  'No HTTP request after MITM handshake. This connection was closed and the host was bypassed; later connects go tunnel-only until you Stop VPN.';
+  'No HTTP request after MITM handshake. This connection was closed; the host was not added to session bypass unless Capture summary says otherwise.';
+
+const MITM_NO_REQUEST_BYPASS_HINT =
+  'No HTTP request after MITM handshake. This connection was closed and the host was added to session bypass; later connects stay tunnel-only until you Stop VPN.';
 
 const MITM_WEBSOCKET_HINT =
-  'Legacy WebSocket MITM path. Current builds relay upgrades (`websocket_relay`) without inspecting frames and without session bypass.';
+  'Legacy WebSocket MITM path. Current builds inspect frames read-only (`websocket_frames`) without session bypass.';
 
 const WEBSOCKET_RELAY_HINT =
-  'WebSocket upgrade was relayed to upstream without inspecting frames. HTTP payload for the socket stream is unavailable.';
+  'WebSocket upgrade was relayed without inspecting frames (legacy capture). Newer builds use Messages tab frame inspect.';
+
+const WEBSOCKET_FRAMES_HINT =
+  'WebSocket frames are inspected read-only on the Messages tab. Inject, rewrite, and overrides are not supported.';
 
 const ALPN_NO_HTTP11_HINT =
   'ClientHello ALPN did not offer http/1.1, so Lenswire skipped MITM and used a transparent tunnel for this connection.';
@@ -107,16 +125,28 @@ function summaryHas(entry: TrafficEntry, pattern: RegExp): boolean {
   return pattern.test(entry.captureSummary ?? '');
 }
 
+function hasSessionBypass(entry: TrafficEntry): boolean {
+  return Boolean(entry.bypassCause) || entry.reasonCode === 'mitm_bypassed';
+}
+
 function mitmUnsupportedHint(entry: TrafficEntry): string {
-  if (summaryHas(entry, /guess=http2/i)) return MITM_UNSUPPORTED_HTTP2_HINT;
-  if (summaryHas(entry, /guess=non_http/i)) return MITM_UNSUPPORTED_BINARY_HINT;
-  if (summaryHas(entry, /guess=http11/i)) return MITM_UNSUPPORTED_METHOD_HINT;
-  return MITM_UNSUPPORTED_HINT;
+  const bypassed = hasSessionBypass(entry);
+  if (summaryHas(entry, /guess=http2/i)) {
+    return bypassed ? MITM_UNSUPPORTED_HTTP2_HINT : MITM_UNSUPPORTED_HTTP2_HINT_NO_BYPASS;
+  }
+  if (summaryHas(entry, /guess=non_http/i)) {
+    return bypassed ? MITM_UNSUPPORTED_BINARY_HINT : MITM_UNSUPPORTED_BINARY_HINT_NO_BYPASS;
+  }
+  if (summaryHas(entry, /guess=http11/i)) {
+    return bypassed ? MITM_UNSUPPORTED_METHOD_HINT : MITM_UNSUPPORTED_METHOD_HINT_NO_BYPASS;
+  }
+  return bypassed ? MITM_UNSUPPORTED_HINT : MITM_UNSUPPORTED_HINT_NO_BYPASS;
 }
 
 function mitmNoRequestHint(entry: TrafficEntry): string {
   if (summaryHas(entry, /cause=timeout/i)) return MITM_NO_REQUEST_TIMEOUT_HINT;
   if (summaryHas(entry, /cause=eof|guess=empty/i)) return MITM_NO_REQUEST_EOF_HINT;
+  if (hasSessionBypass(entry)) return MITM_NO_REQUEST_BYPASS_HINT;
   return MITM_NO_REQUEST_HINT;
 }
 
@@ -142,6 +172,9 @@ export function payloadUnavailableHint(entry: TrafficEntry): string | null {
     }
     if (entry.reasonCode === 'websocket_relay') {
       return `${summary}\n\n${WEBSOCKET_RELAY_HINT}`;
+    }
+    if (entry.reasonCode === 'websocket_frames') {
+      return `${summary}\n\n${WEBSOCKET_FRAMES_HINT}`;
     }
     if (entry.reasonCode === 'alpn_no_http11') {
       return `${summary}\n\n${ALPN_NO_HTTP11_HINT}`;
@@ -176,6 +209,7 @@ export function decryptHelpHint(entry: TrafficEntry): string | null {
   if (entry.reasonCode === 'mitm_no_request') return mitmNoRequestHint(entry);
   if (entry.reasonCode === 'mitm_websocket') return MITM_WEBSOCKET_HINT;
   if (entry.reasonCode === 'websocket_relay') return WEBSOCKET_RELAY_HINT;
+  if (entry.reasonCode === 'websocket_frames') return WEBSOCKET_FRAMES_HINT;
   if (entry.reasonCode === 'alpn_no_http11') return ALPN_NO_HTTP11_HINT;
   if (entry.reasonCode === 'quic_udp_blocked') {
     return 'UDP/443 (QUIC) was blocked by Lenswire. Clients should fall back to TCP; QUIC payload is not captured.';
@@ -193,18 +227,26 @@ export function decryptHelpTitle(entry: TrafficEntry): string | null {
   if (entry.reasonCode === 'mitm_bypassed') return mitmBypassedTitle(entry);
   if (entry.reasonCode === 'mitm_handshake_failed') return 'TLS trust / handshake';
   if (entry.reasonCode === 'mitm_unsupported') {
-    if (summaryHas(entry, /guess=http2/i)) return 'HTTP/2 after MITM (bypassed)';
-    if (summaryHas(entry, /guess=non_http/i)) return 'Non-HTTP after MITM (bypassed)';
-    if (summaryHas(entry, /guess=http11/i)) return 'Unsupported method (bypassed)';
-    return 'Unsupported protocol (bypassed)';
+    const bypassed = hasSessionBypass(entry);
+    if (summaryHas(entry, /guess=http2/i)) {
+      return bypassed ? 'HTTP/2 after MITM (bypassed)' : 'HTTP/2 after MITM';
+    }
+    if (summaryHas(entry, /guess=non_http/i)) {
+      return bypassed ? 'Non-HTTP after MITM (bypassed)' : 'Non-HTTP after MITM';
+    }
+    if (summaryHas(entry, /guess=http11/i)) {
+      return bypassed ? 'Unsupported method (bypassed)' : 'Unsupported method';
+    }
+    return bypassed ? 'Unsupported protocol (bypassed)' : 'Unsupported protocol';
   }
   if (entry.reasonCode === 'mitm_no_request') {
     if (summaryHas(entry, /cause=timeout/i)) return 'No HTTP after MITM (timeout)';
     if (summaryHas(entry, /cause=eof|guess=empty/i)) return 'Client closed after MITM';
-    return 'No HTTP after MITM (bypassed)';
+    return hasSessionBypass(entry) ? 'No HTTP after MITM (bypassed)' : 'No HTTP after MITM';
   }
   if (entry.reasonCode === 'mitm_websocket') return 'WebSocket (legacy)';
   if (entry.reasonCode === 'websocket_relay') return 'WebSocket relay';
+  if (entry.reasonCode === 'websocket_frames') return 'WebSocket frames';
   if (entry.reasonCode === 'alpn_no_http11') return 'ALPN without HTTP/1.1';
   if (entry.reasonCode === 'quic_udp_blocked') return 'QUIC UDP blocked';
   if (entry.reasonCode === 'mitm_error') return 'MITM protocol mismatch';
