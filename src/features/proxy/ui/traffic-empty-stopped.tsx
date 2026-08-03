@@ -6,6 +6,7 @@ import {
   androidStoppedSetupLines,
   androidStoppedSummary,
 } from '@/features/proxy/lib/android-ca-guidance';
+import { CAPTURE_LIMITS_LINE } from '@/features/proxy/lib/capture-status-copy';
 import { Button } from '@/shared/ui/button';
 import { Icon } from '@/shared/ui/icon';
 import { Separator } from '@/shared/ui/separator';
@@ -44,6 +45,9 @@ export function TrafficEmptyStopped({
             {isAndroid
               ? androidStoppedSummary(showEmulatorTrustCa)
               : 'Install the CA certificate first, then tap Start. iOS will ask to allow VPN.'}
+          </Text>
+          <Text variant="muted" className="mt-2 text-center text-sm">
+            {CAPTURE_LIMITS_LINE}
           </Text>
         </View>
         <Separator className="my-8 w-full" />

@@ -50,8 +50,11 @@ export function CaptureStatusesIntro({
       <View className="flex-1 items-center justify-center bg-black/55 px-6">
         <View className="bg-background border-border w-full max-w-lg rounded-lg border p-4">
           <Text className="mb-1 text-base font-semibold">{CAPTURE_STATUSES_INTRO.title}</Text>
-          <Text variant="muted" className="mb-3 text-sm">
+          <Text variant="muted" className="mb-1 text-sm">
             {CAPTURE_STATUSES_INTRO.lead}
+          </Text>
+          <Text variant="muted" className="mb-3 text-sm">
+            {CAPTURE_STATUSES_INTRO.limits}
           </Text>
           <ScrollView className="max-h-80" bounces={false}>
             <View className="gap-3">

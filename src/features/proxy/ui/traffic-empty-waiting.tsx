@@ -3,6 +3,7 @@ import { ScrollView, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { androidWaitingSummary } from '@/features/proxy/lib/android-ca-guidance';
+import { CAPTURE_LIMITS_LINE } from '@/features/proxy/lib/capture-status-copy';
 import { Icon } from '@/shared/ui/icon';
 import { Text } from '@/shared/ui/text';
 
@@ -36,6 +37,9 @@ export function TrafficEmptyWaiting({
         {isAndroid
           ? androidWaitingSummary(recording, showEmulatorTrustCa)
           : `Waiting for requests. Recording is ${recording ? 'on' : 'paused'}. Open Safari or any app.`}
+      </Text>
+      <Text variant="muted" className="mt-2 max-w-md text-center text-sm">
+        {CAPTURE_LIMITS_LINE}
       </Text>
     </ScrollView>
   );

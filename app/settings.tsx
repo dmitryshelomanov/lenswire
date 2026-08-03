@@ -267,6 +267,9 @@ export default function SettingsScreen() {
 
         <Field label="Capture statuses">
           <Text variant="muted">{CAPTURE_STATUSES_INTRO.lead}</Text>
+          <Text variant="muted" className="mt-1">
+            {CAPTURE_STATUSES_INTRO.limits}
+          </Text>
           <View className="mt-2 gap-3">
             {CAPTURE_STATUS_ITEMS.map((item) => (
               <View key={item.id} className="gap-1">

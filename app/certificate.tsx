@@ -10,6 +10,7 @@ import {
   androidInstallSteps,
   IOS_PINNING_NOTE,
 } from '@/features/proxy/lib/android-ca-guidance';
+import { CAPTURE_LIMITS_LINE } from '@/features/proxy/lib/capture-status-copy';
 import { useProxyCertificate, useProxySettings } from '@/features/proxy/store';
 import { AndroidChromeCallout } from '@/features/proxy/ui/certificate/android-chrome-callout';
 import { CertificateFingerprintCard } from '@/features/proxy/ui/certificate/certificate-fingerprint-card';
@@ -65,6 +66,7 @@ export default function CertificateScreen() {
           <Text variant="muted">
             Generate a local root certificate on this device to decrypt HTTPS traffic.
           </Text>
+          <Text variant="muted">{CAPTURE_LIMITS_LINE}</Text>
           {isAndroid ? (
             <AndroidChromeCallout
               showEmulatorTrustCa={showEmulatorTrustCa}
