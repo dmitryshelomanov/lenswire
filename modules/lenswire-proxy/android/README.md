@@ -113,6 +113,13 @@ Listens on localhost and accepts either:
 5. **Passthrough**: bidirectional byte relay with ClientHello replay via `PrefixedSocket`. No body inspection.
 6. **Fail-open / hard failure**: if MITM cannot complete safely before the client has accepted our cert, fall back to passthrough; if TLS already started on the client side, close and optionally add the host to the session bypass map so later connections skip MITM.
 
+### WebSocket frames
+
+- HTTP/1.1 `Upgrade: websocket` on MITM (or plain HTTP) is captured as `websocket_frames` with read-only frame inspect (`WebSocketFrameParser`).
+- Each Upgrade handshake is a **new** capture id. Browser reconnects (background/tab reload) do not append to a closed session.
+- Session bypass policy (`MitmSessionBypassPolicy`): idle MITM timeouts **do not** poison the host; after a successful WS MITM, a parallel HTTP/2 sniff **does not** session-bypass that host (so WSS reconnects stay MITM’d). Stop VPN / clear bypass resets this.
+- Relay waits for both directions before full close (no `SSLSocket.shutdownOutput` — TLS close_notify would kill the peer side). Async capture flush keeps inspect I/O off the pipe path.
+
 ### SOCKS bridge details
 
 - **Port 80**: pipe the SOCKS client straight to the local HTTP proxy (origin-form requests).
@@ -136,6 +143,8 @@ Certificate pinning and HTTP/3 (QUIC) are **not** decryptable; such traffic is t
 | File | Purpose |
 |------|---------|
 | `LocalProxyServer.kt` | HTTP proxy, CONNECT MITM / passthrough, capture emission |
+| `WebSocketFrameParser.kt` | RFC 6455 frame parse + batched `WsFrameCaptureRecorder` |
+| `MitmSessionBypassPolicy.kt` | When HardFailure may session-bypass a host |
 | `SocksBridgeServer.kt` | SOCKS5 TCP + UDP ASSOCIATE → local proxy |
 | `LenswireVpnService.kt` | VpnService lifecycle, wiring of the stack |
 | `Tun2SocksRuntime.kt` | leaf engine over the TUN fd |

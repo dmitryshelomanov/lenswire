@@ -75,6 +75,12 @@ Same MITM policy as Android (`LocalProxyServer`):
 - SOCKS bridge peeks ClientHello for non-80 TCP and sends `X-Lenswire-SNI` on the CONNECT to `:9090`.
 - UDP ASSOCIATE forwards DNS for hev.
 
+### WebSocket frames
+
+- HTTP/1.1 `Upgrade: websocket` is captured as `websocket_frames` (read-only frame inspect via `WebSocketFrameParser`).
+- Each Upgrade is a **new** capture. Reconnects are not merged into a closed session.
+- `MitmSessionBypassPolicy` + `WsMitmHostStore` (App Group): idle MITM timeouts do not session-bypass; after successful WS MITM, parallel HTTP/2 does not poison that host. Cleared with session bypass / Stop VPN.
+
 ## Vendored hev
 
 Binary: [`vendor/HevSocks5Tunnel.xcframework`](../../../vendor/HevSocks5Tunnel.xcframework) (from [Tun2SocksKit](https://github.com/EbrahimTahernejad/Tun2SocksKit) / hev-socks5-tunnel).
@@ -88,7 +94,8 @@ C helpers: [`targets/network-packet-tunnel/HevSupport/`](../../../targets/networ
 These stay byte-identical between the app module and the tunnel target (`npm run check:ios-sync`):
 
 - `LocalProxyServer.swift`
-- `LenswireShared.swift` (includes `ProxyRuntimeStore`)
+- `LenswireShared.swift` (includes `ProxyRuntimeStore`, `WsMitmHostStore`)
+- `WebSocketFrameParser.swift`
 - `TLSBridge.swift`
 - `CertificateAuthority.swift`
 - `TlsSni.swift`

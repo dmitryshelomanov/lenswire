@@ -69,4 +69,75 @@ class CaptureStoreTest {
     assertEquals(true, response["encodingDecoded"])
     assertFalse(response.containsKey("previewBase64"))
   }
+
+  @Test
+  fun `toSummary keeps websocket lifecycle fields`() {
+    val entry = mapOf(
+      "id" to "ws-1",
+      "wsFrames" to listOf(mapOf("opcode" to "text")),
+      "wsFrameCount" to 3,
+      "wsClosed" to true,
+      "endedAt" to 1_700_000_000_000L,
+      "wsEndReason" to "close_frame",
+      "wsCloseCode" to 1000,
+      "wsCompressed" to true,
+      "wsFramesOmitted" to true,
+      "requestBody" to mapOf("kind" to "empty", "size" to 0),
+      "responseBody" to mapOf("kind" to "empty", "size" to 0),
+    )
+    val summary = CaptureStore.toSummary(entry)
+    assertFalse(summary.containsKey("wsFrames"))
+    assertEquals(3, summary["wsFrameCount"])
+    assertEquals(true, summary["wsClosed"])
+    assertEquals(1_700_000_000_000L, summary["endedAt"])
+    assertEquals("close_frame", summary["wsEndReason"])
+    assertEquals(1000, summary["wsCloseCode"])
+    assertEquals(true, summary["wsCompressed"])
+    assertEquals(true, summary["wsFramesOmitted"])
+  }
+
+  @Test
+  fun `shouldReassignIdToProtectWs when tunnel would overwrite frames`() {
+    val existing = mapOf(
+      "id" to "same",
+      "reasonCode" to "websocket_frames",
+      "wsFrameCount" to 4,
+    )
+    val incoming = mapOf(
+      "id" to "same",
+      "reasonCode" to "mitm_error",
+      "status" to 502,
+    )
+    assertTrue(CaptureStore.shouldReassignIdToProtectWs(existing, incoming))
+    assertFalse(
+      CaptureStore.shouldReassignIdToProtectWs(
+        existing,
+        mapOf("id" to "same", "reasonCode" to "websocket_frames"),
+      ),
+    )
+    assertFalse(
+      CaptureStore.shouldReassignIdToProtectWs(
+        mapOf("id" to "http", "reasonCode" to "ok"),
+        incoming,
+      ),
+    )
+  }
+
+  @Test
+  fun `summariesAlignWithIndex requires matching ids in order`() {
+    val index = JSONArray(listOf("a.json", "b.json"))
+    val ok = JSONArray()
+    ok.put(org.json.JSONObject(mapOf("id" to "a")))
+    ok.put(org.json.JSONObject(mapOf("id" to "b")))
+    assertTrue(CaptureStore.summariesAlignWithIndex(ok, index))
+
+    val mismatched = JSONArray()
+    mismatched.put(org.json.JSONObject(mapOf("id" to "b")))
+    mismatched.put(org.json.JSONObject(mapOf("id" to "a")))
+    assertFalse(CaptureStore.summariesAlignWithIndex(mismatched, index))
+
+    val short = JSONArray()
+    short.put(org.json.JSONObject(mapOf("id" to "a")))
+    assertFalse(CaptureStore.summariesAlignWithIndex(short, index))
+  }
 }

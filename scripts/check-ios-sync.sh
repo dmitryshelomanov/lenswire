@@ -34,6 +34,10 @@ pairs = [
         "modules/lenswire-proxy/ios/X509.swift",
         "targets/network-packet-tunnel/X509.swift",
     ),
+    (
+        "modules/lenswire-proxy/ios/WebSocketFrameParser.swift",
+        "targets/network-packet-tunnel/WebSocketFrameParser.swift",
+    ),
 ]
 
 

@@ -83,18 +83,24 @@ object UnderlyingNetwork {
     }
     val network = underlyingOrNull()
     if (network != null) {
-      return try {
+      try {
         val addresses = network.getAllByName(literal)
         val chosen = addresses.firstOrNull() ?: throw UnknownHostException(literal)
         Log.d(TAG, "dns host=$literal -> ${chosen.hostAddress} via underlying network")
-        chosen
+        return chosen
       } catch (e: Exception) {
-        Log.w(TAG, "underlying dns failed host=$literal: ${e.message}")
-        throw if (e is UnknownHostException) e else UnknownHostException("$literal (${e.message})")
+        Log.w(TAG, "underlying dns failed host=$literal: ${e.message}; falling back to system dns")
       }
+    } else {
+      Log.w(TAG, "no underlying network; system dns for host=$literal")
     }
-    Log.w(TAG, "no underlying network; system dns for host=$literal")
-    return InetAddress.getByName(literal)
+    return try {
+      val chosen = InetAddress.getByName(literal)
+      Log.d(TAG, "dns host=$literal -> ${chosen.hostAddress} via system dns")
+      chosen
+    } catch (e: Exception) {
+      throw if (e is UnknownHostException) e else UnknownHostException("$literal (${e.message})")
+    }
   }
 
   /**

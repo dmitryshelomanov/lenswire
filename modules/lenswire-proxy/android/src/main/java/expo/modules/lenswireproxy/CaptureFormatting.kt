@@ -19,24 +19,30 @@ internal object CaptureFormatting {
     body: ByteArray,
     contentType: String?,
     contentEncoding: String? = null,
+    forceTruncated: Boolean = false,
+    wireSize: Long? = null,
   ): Map<String, Any?> {
-    if (body.isEmpty()) return mapOf("kind" to "empty", "size" to 0)
+    val reportedSize = (wireSize ?: body.size.toLong()).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+    if (body.isEmpty() && !forceTruncated) return mapOf("kind" to "empty", "size" to 0)
+    if (body.isEmpty() && forceTruncated) {
+      return mapOf("kind" to "binary", "size" to reportedSize, "truncated" to true)
+    }
 
     val decoded = maybeDecodeEncoding(body, contentEncoding)
     val payload = decoded.bytes
     val encodingDecoded = decoded.decoded
-    val size = payload.size
+    val size = if (forceTruncated) reportedSize else payload.size
     val lower = contentType?.lowercase() ?: ""
 
     if (lower.contains("multipart/form-data")) {
       val text = String(payload, Charsets.UTF_8)
       val boundary = lower.substringAfter("boundary=", "").trim().ifEmpty { null }
       val summary = if (boundary != null) summarizeMultipart(text, boundary) else text
-      return textBodyResult("text", summary, size, encodingDecoded)
+      return textBodyResult("text", summary, size, encodingDecoded, forceTruncated)
     }
 
     if (lower.startsWith("image/")) {
-      return binaryBodyResult("image", payload, size, encodingDecoded, MAX_IMAGE_PREVIEW_BYTES)
+      return binaryBodyResult("image", payload, size, encodingDecoded, MAX_IMAGE_PREVIEW_BYTES, forceTruncated)
     }
 
     val textLike = lower.contains("json") ||
@@ -46,7 +52,7 @@ internal object CaptureFormatting {
       lower.contains("javascript")
 
     if (!textLike) {
-      return binaryBodyResult("binary", payload, size, encodingDecoded, MAX_BINARY_PREVIEW_BYTES)
+      return binaryBodyResult("binary", payload, size, encodingDecoded, MAX_BINARY_PREVIEW_BYTES, forceTruncated)
     }
 
     var text = String(payload, Charsets.UTF_8)
@@ -56,7 +62,7 @@ internal object CaptureFormatting {
     } else {
       "text"
     }
-    return textBodyResult(kind, text, size, encodingDecoded)
+    return textBodyResult(kind, text, size, encodingDecoded, forceTruncated)
   }
 
   private fun textBodyResult(
@@ -64,9 +70,14 @@ internal object CaptureFormatting {
     text: String,
     size: Int,
     encodingDecoded: Boolean,
+    forceTruncated: Boolean = false,
   ): Map<String, Any?> {
-    val truncated = text.length > MAX_TEXT_CHARS
-    val clipped = if (truncated) text.substring(0, MAX_TEXT_CHARS) + "\n\n...truncated..." else text
+    val truncated = forceTruncated || text.length > MAX_TEXT_CHARS
+    val clipped = if (text.length > MAX_TEXT_CHARS) {
+      text.substring(0, MAX_TEXT_CHARS) + "\n\n...truncated..."
+    } else {
+      text
+    }
     return buildMap {
       put("kind", kind)
       put("text", clipped)
@@ -82,9 +93,10 @@ internal object CaptureFormatting {
     size: Int,
     encodingDecoded: Boolean,
     maxPreview: Int,
+    forceTruncated: Boolean = false,
   ): Map<String, Any?> {
-    val truncated = payload.size > maxPreview
-    val preview = if (truncated) payload.copyOf(maxPreview) else payload
+    val truncated = forceTruncated || payload.size > maxPreview
+    val preview = if (payload.size > maxPreview) payload.copyOf(maxPreview) else payload
     return buildMap {
       put("kind", kind)
       put("size", size)

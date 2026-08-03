@@ -11,6 +11,13 @@ import java.net.SocketException
 internal object HttpIo {
   const val MAX_BODY_BYTES = 2 * 1024 * 1024
 
+  /** Result of streaming an upstream body to the client while capping capture memory. */
+  data class TeeBodyResult(
+    val capture: ByteArray,
+    val truncated: Boolean,
+    val wireBytes: Long,
+  )
+
   fun writeHttpResponse(
     out: OutputStream,
     status: Int,
@@ -18,6 +25,69 @@ internal object HttpIo {
     body: ByteArray,
     statusMessage: String? = null,
     connectionClose: Boolean = true,
+  ) {
+    writeHttpResponseHeaders(
+      out = out,
+      status = status,
+      headers = headers,
+      contentLength = body.size.toLong(),
+      statusMessage = statusMessage,
+      connectionClose = connectionClose,
+      chunked = false,
+    )
+    out.write(body)
+    out.flush()
+  }
+
+  /**
+   * Stream [bodyStream] to the client without truncating the wire path.
+   * Capture buffer is capped at [maxCaptureBytes]; excess bytes are still forwarded.
+   *
+   * Framing: when [contentLength] is known, write Content-Length and raw body.
+   * Otherwise write Transfer-Encoding: chunked (keeps keep-alive usable).
+   */
+  fun streamHttpResponse(
+    out: OutputStream,
+    status: Int,
+    headers: Map<String, String>,
+    bodyStream: InputStream?,
+    contentLength: Long? = null,
+    statusMessage: String? = null,
+    connectionClose: Boolean = true,
+    maxCaptureBytes: Int = MAX_BODY_BYTES,
+  ): TeeBodyResult {
+    val knownLength = contentLength != null && contentLength >= 0
+    writeHttpResponseHeaders(
+      out = out,
+      status = status,
+      headers = headers,
+      contentLength = if (knownLength) contentLength else null,
+      statusMessage = statusMessage,
+      connectionClose = connectionClose,
+      chunked = !knownLength,
+    )
+    if (bodyStream == null) {
+      if (!knownLength) {
+        out.write("0\r\n\r\n".toByteArray(Charsets.ISO_8859_1))
+        out.flush()
+      }
+      return TeeBodyResult(ByteArray(0), truncated = false, wireBytes = 0L)
+    }
+    return if (knownLength) {
+      teeRawBody(bodyStream, out, maxCaptureBytes)
+    } else {
+      teeChunkedBody(bodyStream, out, maxCaptureBytes)
+    }
+  }
+
+  fun writeHttpResponseHeaders(
+    out: OutputStream,
+    status: Int,
+    headers: Map<String, String>,
+    contentLength: Long?,
+    statusMessage: String? = null,
+    connectionClose: Boolean = true,
+    chunked: Boolean = false,
   ) {
     val headerBuf = StringBuilder()
     headerBuf.append("HTTP/1.1 ").append(status).append(' ')
@@ -29,13 +99,76 @@ internal object HttpIo {
       if (key.equals("Connection", true)) return@forEach
       headerBuf.append(key).append(": ").append(value).append("\r\n")
     }
-    headerBuf.append("Content-Length: ").append(body.size).append("\r\n")
+    if (chunked) {
+      headerBuf.append("Transfer-Encoding: chunked\r\n")
+    } else if (contentLength != null) {
+      headerBuf.append("Content-Length: ").append(contentLength).append("\r\n")
+    }
     headerBuf.append("Connection: ")
       .append(if (connectionClose) "close" else "keep-alive")
       .append("\r\n\r\n")
     out.write(headerBuf.toString().toByteArray(Charsets.ISO_8859_1))
-    out.write(body)
     out.flush()
+  }
+
+  /** Pipe all bytes to [out]; keep only the first [maxCaptureBytes] for capture. */
+  fun teeRawBody(
+    input: InputStream,
+    out: OutputStream,
+    maxCaptureBytes: Int = MAX_BODY_BYTES,
+  ): TeeBodyResult {
+    val capture = ByteArrayOutputStream()
+    val buf = ByteArray(32 * 1024)
+    var wireBytes = 0L
+    var truncated = false
+    while (true) {
+      val n = input.read(buf)
+      if (n <= 0) break
+      out.write(buf, 0, n)
+      wireBytes += n
+      if (capture.size() < maxCaptureBytes) {
+        val room = maxCaptureBytes - capture.size()
+        capture.write(buf, 0, minOf(n, room))
+        if (n > room) truncated = true
+      } else {
+        truncated = true
+      }
+    }
+    out.flush()
+    return TeeBodyResult(capture.toByteArray(), truncated = truncated, wireBytes = wireBytes)
+  }
+
+  /** Pipe as HTTP/1.1 chunked; capture still stores decoded (raw) bytes up to the cap. */
+  fun teeChunkedBody(
+    input: InputStream,
+    out: OutputStream,
+    maxCaptureBytes: Int = MAX_BODY_BYTES,
+  ): TeeBodyResult {
+    val capture = ByteArrayOutputStream()
+    val buf = ByteArray(32 * 1024)
+    var wireBytes = 0L
+    var truncated = false
+    while (true) {
+      val n = input.read(buf)
+      if (n <= 0) break
+      out.write(Integer.toHexString(n).toByteArray(Charsets.ISO_8859_1))
+      out.write('\r'.code)
+      out.write('\n'.code)
+      out.write(buf, 0, n)
+      out.write('\r'.code)
+      out.write('\n'.code)
+      wireBytes += n
+      if (capture.size() < maxCaptureBytes) {
+        val room = maxCaptureBytes - capture.size()
+        capture.write(buf, 0, minOf(n, room))
+        if (n > room) truncated = true
+      } else {
+        truncated = true
+      }
+    }
+    out.write("0\r\n\r\n".toByteArray(Charsets.ISO_8859_1))
+    out.flush()
+    return TeeBodyResult(capture.toByteArray(), truncated = truncated, wireBytes = wireBytes)
   }
 
   /** HTTP/1.1 default keep-alive unless client sent Connection: close. */

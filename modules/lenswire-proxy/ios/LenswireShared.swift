@@ -15,6 +15,8 @@ enum LenswireShared {
   static let overridesKey = "lenswire.settings.overrides"
   static let recordingPausedKey = "lenswire.settings.recordingPaused"
   static let mitmBypassKey = "lenswire.runtime.mitmBypass"
+  /// Hosts that completed successful websocket_frames MITM (cleared with session bypass).
+  static let mitmWsHostsKey = "lenswire.runtime.mitmWsHosts"
   /// Pending leaf-identity clears for the packet-tunnel process (app writes, extension drains).
   static let mitmLeafClearKey = "lenswire.runtime.mitmLeafClear"
   static let caPemFileName = "lenswire-ca.pem"
@@ -27,7 +29,9 @@ enum LenswireShared {
   static let maxCaptures = 200
   private static let capturesDirName = "captures"
   private static let capturesIndexName = "index.json"
+  private static let capturesSummariesName = "summaries.json"
   private static let capturesRevisionName = "revision"
+  private static let capturesLockName = ".captures.lock"
   private static let capturesLock = NSLock()
 
   static var sharedDefaults: UserDefaults {
@@ -285,93 +289,265 @@ enum LenswireShared {
 
   static func appendCapture(_ entry: [String: Any]) {
     if recordingPaused { return }
-    capturesLock.lock()
-    defer { capturesLock.unlock() }
-    migrateCapturesAwayFromDefaults()
-    let dir = capturesDirectory()
-    var payload = entry
-    let id = (entry["id"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
-    let captureId = (id?.isEmpty == false) ? id! : UUID().uuidString
-    payload["id"] = captureId
-    let fileName = "\(captureId).json"
-    guard let data = try? JSONSerialization.data(withJSONObject: payload, options: []) else { return }
-    try? data.write(to: dir.appendingPathComponent(fileName), options: .atomic)
-
-    var index = readCaptureIndex(dir: dir)
-    index.removeAll { $0 == fileName }
-    index.insert(fileName, at: 0)
-    if index.count > maxCaptures {
-      for drop in index.suffix(from: maxCaptures) {
-        try? FileManager.default.removeItem(at: dir.appendingPathComponent(drop))
+    withCapturesAccess {
+      migrateCapturesAwayFromDefaults()
+      let dir = capturesDirectory()
+      var payload = entry
+      let id = (entry["id"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+      var captureId = (id?.isEmpty == false) ? id! : UUID().uuidString
+      // Never replace an existing WebSocket capture with a non-WS row (match Android).
+      let existingURL = dir.appendingPathComponent("\(captureId).json")
+      if let existingData = try? Data(contentsOf: existingURL),
+         let existing = try? JSONSerialization.jsonObject(with: existingData) as? [String: Any],
+         shouldReassignIdToProtectWs(existing: existing, incoming: payload) {
+        captureId = UUID().uuidString
       }
-      index = Array(index.prefix(maxCaptures))
+      payload["id"] = captureId
+      let fileName = "\(captureId).json"
+      guard let data = try? JSONSerialization.data(withJSONObject: payload, options: []) else { return }
+      try? data.write(to: dir.appendingPathComponent(fileName), options: .atomic)
+
+      var index = readCaptureIndex(dir: dir)
+      index.removeAll { $0 == fileName }
+      index.insert(fileName, at: 0)
+      if index.count > maxCaptures {
+        for drop in index.suffix(from: maxCaptures) {
+          try? FileManager.default.removeItem(at: dir.appendingPathComponent(drop))
+        }
+        index = Array(index.prefix(maxCaptures))
+      }
+      writeCaptureIndex(dir: dir, index: index)
+      prependCaptureSummary(dir: dir, summary: toCaptureSummary(payload), indexCount: index.count)
+      bumpCapturesRevision(dir: dir)
     }
-    writeCaptureIndex(dir: dir, index: index)
-    bumpCapturesRevision(dir: dir)
+  }
+
+  static func shouldReassignIdToProtectWs(existing: [String: Any], incoming: [String: Any]) -> Bool {
+    isWsCaptureMap(existing) && !isWsCaptureMap(incoming)
+  }
+
+  static func isWsCaptureMap(_ entry: [String: Any]) -> Bool {
+    let reason = entry["reasonCode"] as? String
+    if reason == "websocket_frames" || reason == "websocket_relay" || reason == "mitm_websocket" {
+      return true
+    }
+    if let count = entry["wsFrameCount"] as? Int, count > 0 { return true }
+    if let count = entry["wsFrameCount"] as? NSNumber, count.intValue > 0 { return true }
+    if let frames = entry["wsFrames"] as? [Any], !frames.isEmpty { return true }
+    return false
   }
 
   static func capturesRevision() -> Int64 {
-    capturesLock.lock()
-    defer { capturesLock.unlock() }
-    migrateCapturesAwayFromDefaults()
-    return readCapturesRevision(dir: capturesDirectory())
+    withCapturesAccess {
+      migrateCapturesAwayFromDefaults()
+      return readCapturesRevision(dir: capturesDirectory())
+    }
   }
 
   static func readCaptures(summaries: Bool = false) -> [[String: Any]] {
-    capturesLock.lock()
-    defer { capturesLock.unlock() }
-    migrateCapturesAwayFromDefaults()
-    let dir = capturesDirectory()
-    let index = readCaptureIndex(dir: dir)
-    var items: [[String: Any]] = []
-    var valid: [String] = []
-    for name in index {
-      let url = dir.appendingPathComponent(name)
-      guard let data = try? Data(contentsOf: url),
-            let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-        continue
+    withCapturesAccess {
+      migrateCapturesAwayFromDefaults()
+      let dir = capturesDirectory()
+      let index = readCaptureIndex(dir: dir)
+      if summaries {
+        let cached = readCaptureSummaries(dir: dir)
+        if summariesAlignWithIndex(summaries: cached, index: index) {
+          return cached
+        }
       }
-      items.append(summaries ? toCaptureSummary(obj) : obj)
-      valid.append(name)
+      var items: [[String: Any]] = []
+      var valid: [String] = []
+      var rebuilt: [[String: Any]] = []
+      for name in index {
+        let url = dir.appendingPathComponent(name)
+        guard let data = try? Data(contentsOf: url),
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+          continue
+        }
+        let summary = toCaptureSummary(obj)
+        items.append(summaries ? summary : obj)
+        valid.append(name)
+        rebuilt.append(summary)
+      }
+      if valid.count != index.count {
+        writeCaptureIndex(dir: dir, index: valid)
+      }
+      writeCaptureSummaries(dir: dir, summaries: rebuilt)
+      return items
     }
-    if valid.count != index.count {
-      writeCaptureIndex(dir: dir, index: valid)
-    }
-    return items
   }
 
   static func readCapture(id: String) -> [String: Any]? {
-    capturesLock.lock()
-    defer { capturesLock.unlock() }
-    migrateCapturesAwayFromDefaults()
-    let trimmed = id.trimmingCharacters(in: .whitespacesAndNewlines)
-    guard !trimmed.isEmpty else { return nil }
-    let url = capturesDirectory().appendingPathComponent("\(trimmed).json")
-    guard let data = try? Data(contentsOf: url),
-          let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-      return nil
+    withCapturesAccess {
+      migrateCapturesAwayFromDefaults()
+      let trimmed = id.trimmingCharacters(in: .whitespacesAndNewlines)
+      guard !trimmed.isEmpty else { return nil }
+      let url = capturesDirectory().appendingPathComponent("\(trimmed).json")
+      guard let data = try? Data(contentsOf: url),
+            let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+        return nil
+      }
+      return obj
     }
-    return obj
   }
 
   static func clearCaptures() {
-    capturesLock.lock()
-    defer { capturesLock.unlock() }
-    migrateCapturesAwayFromDefaults()
-    let dir = capturesDirectory()
-    if let files = try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil) {
-      for file in files {
-        try? FileManager.default.removeItem(at: file)
+    withCapturesAccess {
+      migrateCapturesAwayFromDefaults()
+      let dir = capturesDirectory()
+      if let files = try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil) {
+        for file in files {
+          try? FileManager.default.removeItem(at: file)
+        }
       }
+      writeCaptureIndex(dir: dir, index: [])
+      writeCaptureSummaries(dir: dir, summaries: [])
+      bumpCapturesRevision(dir: dir)
     }
-    writeCaptureIndex(dir: dir, index: [])
-    bumpCapturesRevision(dir: dir)
+  }
+
+  /// Append inspected WebSocket frames onto an existing capture and bump revision.
+  static func appendWsFrames(
+    id: String,
+    frames: [[String: Any]],
+    omitted: Bool = false,
+    compressed: Bool = false,
+    wsClosed: Bool = false,
+    endedAt: Int64? = nil,
+    wsEndReason: String? = nil,
+    wsCloseCode: Int? = nil
+  ) {
+    if recordingPaused { return }
+    withCapturesAccess {
+      migrateCapturesAwayFromDefaults()
+      let trimmed = id.trimmingCharacters(in: .whitespacesAndNewlines)
+      guard !trimmed.isEmpty else { return }
+      let dir = capturesDirectory()
+      let url = dir.appendingPathComponent("\(trimmed).json")
+      guard let data = try? Data(contentsOf: url),
+            var obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+      else {
+        return
+      }
+
+      var existing = obj["wsFrames"] as? [[String: Any]] ?? []
+      for frame in frames {
+        let isClose = (frame["opcode"] as? String) == "close"
+        if existing.count >= WebSocketFrames.maxFrames && !isClose {
+          break
+        }
+        if existing.count >= WebSocketFrames.maxFrames && isClose {
+          if existing.count > WebSocketFrames.maxFrames {
+            existing[existing.count - 1] = frame
+          } else {
+            existing.append(frame)
+          }
+          continue
+        }
+        existing.append(frame)
+      }
+      obj["wsFrames"] = existing
+      obj["wsFrameCount"] = existing.count
+      if omitted || existing.count >= WebSocketFrames.maxFrames {
+        obj["wsFramesOmitted"] = true
+      }
+      if compressed || (obj["wsCompressed"] as? Bool == true) {
+        obj["wsCompressed"] = true
+      }
+      applyWsClosedFields(
+        &obj,
+        wsClosed: wsClosed,
+        endedAt: endedAt,
+        wsEndReason: wsEndReason,
+        wsCloseCode: wsCloseCode
+      )
+      obj["reasonCode"] = "websocket_frames"
+      obj["captureSummary"] = "WebSocket frames inspected (read-only); no inject or rewrite."
+      obj["httpPayloadAvailable"] = true
+      guard let out = try? JSONSerialization.data(withJSONObject: obj, options: []) else { return }
+      try? out.write(to: url, options: .atomic)
+      updateCaptureSummary(dir: dir, id: trimmed, entry: obj)
+      bumpCapturesRevision(dir: dir)
+    }
+  }
+
+  /// Mark a WebSocket capture as closed (idempotent; prefers close_frame).
+  static func markWsClosed(
+    id: String,
+    reason: String,
+    closeCode: Int? = nil,
+    endedAt: Int64 = Int64(Date().timeIntervalSince1970 * 1000)
+  ) {
+    if recordingPaused { return }
+    withCapturesAccess {
+      migrateCapturesAwayFromDefaults()
+      let trimmed = id.trimmingCharacters(in: .whitespacesAndNewlines)
+      guard !trimmed.isEmpty else { return }
+      let dir = capturesDirectory()
+      let url = dir.appendingPathComponent("\(trimmed).json")
+      guard let data = try? Data(contentsOf: url),
+            var obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+      else {
+        return
+      }
+      if obj["wsClosed"] as? Bool == true {
+        let existingReason = obj["wsEndReason"] as? String ?? ""
+        if existingReason == "close_frame" || reason != "close_frame" {
+          return
+        }
+      }
+      applyWsClosedFields(
+        &obj,
+        wsClosed: true,
+        endedAt: endedAt,
+        wsEndReason: reason,
+        wsCloseCode: closeCode
+      )
+      guard let out = try? JSONSerialization.data(withJSONObject: obj, options: []) else { return }
+      try? out.write(to: url, options: .atomic)
+      updateCaptureSummary(dir: dir, id: trimmed, entry: obj)
+      bumpCapturesRevision(dir: dir)
+    }
+  }
+
+  private static func applyWsClosedFields(
+    _ obj: inout [String: Any],
+    wsClosed: Bool,
+    endedAt: Int64?,
+    wsEndReason: String?,
+    wsCloseCode: Int?
+  ) {
+    guard wsClosed else { return }
+    obj["wsClosed"] = true
+    if let endedAt { obj["endedAt"] = endedAt }
+    if let wsEndReason, !wsEndReason.isEmpty { obj["wsEndReason"] = wsEndReason }
+    if let wsCloseCode { obj["wsCloseCode"] = wsCloseCode }
   }
 
   static func toCaptureSummary(_ entry: [String: Any]) -> [String: Any] {
     var out = entry
     out["requestBody"] = bodyStub(entry["requestBody"])
     out["responseBody"] = bodyStub(entry["responseBody"])
+    let frameCount: Int
+    if let number = entry["wsFrameCount"] as? NSNumber {
+      frameCount = number.intValue
+    } else if let intValue = entry["wsFrameCount"] as? Int {
+      frameCount = intValue
+    } else if let frames = entry["wsFrames"] as? [Any] {
+      frameCount = frames.count
+    } else {
+      frameCount = 0
+    }
+    if frameCount > 0 {
+      out["wsFrameCount"] = frameCount
+    }
+    out.removeValue(forKey: "wsFrames")
+    if entry["wsClosed"] as? Bool == true { out["wsClosed"] = true }
+    if let endedAt = entry["endedAt"] { out["endedAt"] = endedAt }
+    if let reason = entry["wsEndReason"] { out["wsEndReason"] = reason }
+    if let code = entry["wsCloseCode"] { out["wsCloseCode"] = code }
+    if entry["wsCompressed"] as? Bool == true { out["wsCompressed"] = true }
+    if entry["wsFramesOmitted"] as? Bool == true { out["wsFramesOmitted"] = true }
     return out
   }
 
@@ -416,6 +592,32 @@ enum LenswireShared {
     try? String(next).data(using: .utf8)?.write(to: url, options: .atomic)
   }
 
+  /// Cross-process serialization for App Group capture I/O (tunnel ↔ app).
+  private static func withCapturesAccess<T>(_ body: () -> T) -> T {
+    let dir = capturesDirectory()
+    let lockURL = dir.appendingPathComponent(capturesLockName)
+    if !FileManager.default.fileExists(atPath: lockURL.path) {
+      FileManager.default.createFile(atPath: lockURL.path, contents: Data(), attributes: nil)
+    }
+    var result: T?
+    var didRun = false
+    var coordError: NSError?
+    let coordinator = NSFileCoordinator()
+    coordinator.coordinate(writingItemAt: lockURL, options: [], error: &coordError) { _ in
+      capturesLock.lock()
+      defer { capturesLock.unlock() }
+      result = body()
+      didRun = true
+    }
+    if didRun {
+      return result!
+    }
+    // Fallback if coordination fails (still serialize in-process).
+    capturesLock.lock()
+    defer { capturesLock.unlock() }
+    return body()
+  }
+
   private static func capturesDirectory() -> URL {
     let dir = sharedContainerURL.appendingPathComponent(capturesDirName, isDirectory: true)
     try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
@@ -437,6 +639,65 @@ enum LenswireShared {
     try? data.write(to: url, options: .atomic)
   }
 
+  private static func readCaptureSummaries(dir: URL) -> [[String: Any]] {
+    let url = dir.appendingPathComponent(capturesSummariesName)
+    guard let data = try? Data(contentsOf: url),
+          let arr = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] else {
+      return []
+    }
+    return arr
+  }
+
+  /// True when each summary id matches the corresponding index entry (`{id}.json`).
+  static func summariesAlignWithIndex(summaries: [[String: Any]], index: [String]) -> Bool {
+    guard summaries.count == index.count else { return false }
+    for (i, name) in index.enumerated() {
+      let id = name.hasSuffix(".json") ? String(name.dropLast(5)) : name
+      guard let summaryId = summaries[i]["id"] as? String, summaryId == id else {
+        return false
+      }
+    }
+    return true
+  }
+
+  private static func writeCaptureSummaries(dir: URL, summaries: [[String: Any]]) {
+    let url = dir.appendingPathComponent(capturesSummariesName)
+    guard let data = try? JSONSerialization.data(withJSONObject: summaries, options: []) else { return }
+    try? data.write(to: url, options: .atomic)
+  }
+
+  private static func prependCaptureSummary(dir: URL, summary: [String: Any], indexCount: Int) {
+    var next = [summary]
+    let previous = readCaptureSummaries(dir: dir)
+    var seen = Set<String>()
+    if let id = summary["id"] as? String { seen.insert(id) }
+    for item in previous {
+      if next.count >= indexCount { break }
+      if let id = item["id"] as? String {
+        if seen.contains(id) { continue }
+        seen.insert(id)
+      }
+      next.append(item)
+    }
+    if next.count > indexCount {
+      next = Array(next.prefix(indexCount))
+    }
+    writeCaptureSummaries(dir: dir, summaries: next)
+  }
+
+  private static func updateCaptureSummary(dir: URL, id: String, entry: [String: Any]) {
+    var summaries = readCaptureSummaries(dir: dir)
+    guard !summaries.isEmpty else { return }
+    let summary = toCaptureSummary(entry)
+    for i in 0..<summaries.count {
+      if (summaries[i]["id"] as? String) == id {
+        summaries[i] = summary
+        writeCaptureSummaries(dir: dir, summaries: summaries)
+        return
+      }
+    }
+  }
+
   private static func migrateCapturesAwayFromDefaults() {
     guard sharedDefaults.object(forKey: capturesKey) != nil else { return }
     sharedDefaults.removeObject(forKey: capturesKey)
@@ -445,16 +706,22 @@ enum LenswireShared {
   static func classifyBody(
     _ data: Data,
     contentType: String?,
-    contentEncoding: String? = nil
+    contentEncoding: String? = nil,
+    forceTruncated: Bool = false,
+    wireSize: Int? = nil
   ) -> [String: Any] {
-    if data.isEmpty {
+    let reportedSize = wireSize ?? data.count
+    if data.isEmpty && !forceTruncated {
       return ["kind": "empty", "size": 0]
+    }
+    if data.isEmpty && forceTruncated {
+      return ["kind": "binary", "size": reportedSize, "truncated": true]
     }
 
     let decoded = maybeDecodeEncoding(data, contentEncoding: contentEncoding)
     let payload = decoded.data
     let encodingDecoded = decoded.decoded
-    let size = payload.count
+    let size = forceTruncated ? reportedSize : payload.count
     let type = (contentType ?? "").lowercased()
 
     if type.contains("multipart/form-data"), let text = String(data: payload, encoding: .utf8) {
@@ -464,7 +731,13 @@ enum LenswireShared {
         .first?
         .trimmingCharacters(in: .whitespacesAndNewlines)
       let summary = summarizeMultipart(text: text, boundary: boundary)
-      return textBodyResult(kind: "text", text: summary, size: size, encodingDecoded: encodingDecoded)
+      return textBodyResult(
+        kind: "text",
+        text: summary,
+        size: size,
+        encodingDecoded: encodingDecoded,
+        forceTruncated: forceTruncated
+      )
     }
 
     if type.hasPrefix("image/") {
@@ -473,7 +746,8 @@ enum LenswireShared {
         payload: payload,
         size: size,
         encodingDecoded: encodingDecoded,
-        maxPreview: maxImagePreviewBytes
+        maxPreview: maxImagePreviewBytes,
+        forceTruncated: forceTruncated
       )
     }
 
@@ -490,7 +764,8 @@ enum LenswireShared {
         payload: payload,
         size: size,
         encodingDecoded: encodingDecoded,
-        maxPreview: maxBinaryPreviewBytes
+        maxPreview: maxBinaryPreviewBytes,
+        forceTruncated: forceTruncated
       )
     }
 
@@ -503,18 +778,26 @@ enum LenswireShared {
       kind = "text"
       display = text
     }
-    return textBodyResult(kind: kind, text: display, size: size, encodingDecoded: encodingDecoded)
+    return textBodyResult(
+      kind: kind,
+      text: display,
+      size: size,
+      encodingDecoded: encodingDecoded,
+      forceTruncated: forceTruncated
+    )
   }
 
   private static func textBodyResult(
     kind: String,
     text: String,
     size: Int,
-    encodingDecoded: Bool
+    encodingDecoded: Bool,
+    forceTruncated: Bool = false
   ) -> [String: Any] {
-    let truncated = text.count > maxBodyBytes
+    let clippedNeeded = text.count > maxBodyBytes
+    let truncated = forceTruncated || clippedNeeded
     let clipped: String
-    if truncated {
+    if clippedNeeded {
       let end = text.index(text.startIndex, offsetBy: maxBodyBytes, limitedBy: text.endIndex) ?? text.endIndex
       clipped = String(text[..<end]) + "\n\n...truncated..."
     } else {
@@ -535,10 +818,12 @@ enum LenswireShared {
     payload: Data,
     size: Int,
     encodingDecoded: Bool,
-    maxPreview: Int
+    maxPreview: Int,
+    forceTruncated: Bool = false
   ) -> [String: Any] {
-    let truncated = payload.count > maxPreview
-    let preview = truncated ? payload.prefix(maxPreview) : payload
+    let previewNeeded = payload.count > maxPreview
+    let truncated = forceTruncated || previewNeeded
+    let preview = previewNeeded ? payload.prefix(maxPreview) : payload
     var out: [String: Any] = [
       "kind": kind,
       "size": size,
@@ -732,6 +1017,19 @@ enum QuicUdpBlock {
   }
 }
 
+/// Session MITM bypass policy for HardFailure paths that historically poisoned
+/// a whole host (killing later WSS reconnects until VPN stop).
+enum MitmSessionBypassPolicy {
+  /// Idle timeout with no HTTP after MITM handshake must not session-bypass the host.
+  static func shouldSessionBypassNoRequestTimeout() -> Bool { false }
+
+  /// Unsupported protocol after MITM (e.g. HTTP/2). Skip session bypass when this host
+  /// already completed a successful WebSocket MITM in the current session.
+  static func shouldSessionBypassUnsupported(hostHadSuccessfulWsMitm: Bool) -> Bool {
+    !hostHadSuccessfulWsMitm
+  }
+}
+
 /// Session MITM bypass map shared via App Group (host lowercase → cause).
 enum MitmBypassStore {
   private static let lock = NSLock()
@@ -788,9 +1086,11 @@ enum MitmBypassStore {
 
   static func clear() {
     lock.lock()
-    defer { lock.unlock() }
     map = [:]
     enqueueLeafClearLocked(hosts: [], clearAll: true)
+    lock.unlock()
+    // Same VPN-session lifetime as bypass (App Group).
+    WsMitmHostStore.clear()
   }
 
   /// Extension drains pending leaf-identity clears written by the app process.
@@ -817,6 +1117,43 @@ enum MitmBypassStore {
       raw["hosts"] = Array(pending)
     }
     LenswireShared.sharedDefaults.set(raw, forKey: LenswireShared.mitmLeafClearKey)
+  }
+}
+
+/// Hosts that completed a successful websocket_frames MITM (App Group; cleared with session bypass).
+enum WsMitmHostStore {
+  private static let lock = NSLock()
+
+  private static var hosts: Set<String> {
+    get {
+      Set(LenswireShared.sharedDefaults.stringArray(forKey: LenswireShared.mitmWsHostsKey) ?? [])
+    }
+    set {
+      LenswireShared.sharedDefaults.set(Array(newValue).sorted(), forKey: LenswireShared.mitmWsHostsKey)
+    }
+  }
+
+  static func add(_ host: String) {
+    let key = host.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    guard !key.isEmpty else { return }
+    lock.lock()
+    defer { lock.unlock() }
+    var next = hosts
+    next.insert(key)
+    hosts = next
+  }
+
+  static func contains(_ host: String) -> Bool {
+    let key = host.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    lock.lock()
+    defer { lock.unlock() }
+    return hosts.contains(key)
+  }
+
+  static func clear() {
+    lock.lock()
+    defer { lock.unlock() }
+    hosts = []
   }
 }
 

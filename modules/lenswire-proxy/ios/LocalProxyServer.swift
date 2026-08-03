@@ -33,6 +33,7 @@ final class LocalProxyServer {
     listener?.cancel()
     listener = nil
     MitmBypassStore.clear()
+    WsMitmHostStore.clear()
   }
 
   private func applyPendingLeafClears() {
@@ -59,6 +60,20 @@ final class LocalProxyServer {
     MitmBypassStore.add(host, cause: cause)
   }
 
+  private func noteWsMitmHost(_ host: String) {
+    WsMitmHostStore.add(host)
+  }
+
+  private func hostHadSuccessfulWsMitm(_ host: String) -> Bool {
+    WsMitmHostStore.contains(host)
+  }
+
+  private func unsupportedBypassHost(_ host: String) -> Bool {
+    MitmSessionBypassPolicy.shouldSessionBypassUnsupported(
+      hostHadSuccessfulWsMitm: hostHadSuccessfulWsMitm(host)
+    )
+  }
+
   func listMitmBypass() -> [[String: String]] {
     MitmBypassStore.list()
   }
@@ -71,6 +86,7 @@ final class LocalProxyServer {
   func clearMitmBypass() {
     MitmBypassStore.clear()
     CertificateAuthority.shared.clearAllLeaves()
+    WsMitmHostStore.clear()
   }
 
   private func handle(connection: NWConnection) {
@@ -118,8 +134,22 @@ final class LocalProxyServer {
       }
 
       let headerLower = headerText.lowercased()
-      if headerLower.contains("transfer-encoding:") && headerLower.contains("chunked") {
-        Self.sendPlain(client: connection, status: 502, body: "Lenswire proxy chunked requests not supported\r\n")
+      let isChunked = headerLower.contains("transfer-encoding:") && headerLower.contains("chunked")
+
+      if isChunked {
+        let bodyStart = headerRange.upperBound
+        let bodyData = Data(next[bodyStart...])
+        if let decoded = Self.decodeChunkedBody(bodyData) {
+          var message = Data(next[..<bodyStart])
+          message.append(decoded)
+          self.processRequest(data: message, client: connection)
+          return
+        }
+        if isComplete || next.count >= Self.maxHttpMessageBytes {
+          Self.sendPlain(client: connection, status: 502, body: "Lenswire proxy chunked request incomplete\r\n")
+          return
+        }
+        self.accumulateHTTPRequest(connection: connection, buffer: next)
         return
       }
 
@@ -372,7 +402,8 @@ final class LocalProxyServer {
           client.cancel()
         case .hardFailure(let detail, let peekBytes, let bypassHost, let reasonCode):
           // Do not passthrough this socket: TLS already started; ClientHello replay would desync.
-          // Unsupported protocol / post-handshake silence → bypass host so retries go tunnel-only.
+          // Session bypass only when bypassHost=true (e.g. unsupported proto without prior WS MITM).
+          // Idle no-request timeouts never session-bypass (see MitmSessionBypassPolicy).
           // Keep reasonCode as-is (do not remap bypassHost=false to mitm_error).
           let failReason = reasonCode
           if bypassHost {
@@ -529,7 +560,8 @@ final class LocalProxyServer {
       handshakeStarted = true
       try serverTLS.handshake()
       let negotiatedAlpn = serverTLS.negotiatedAlpn()
-      // Idle timeout after handshake → mitm_no_request + bypass (not during WS relay).
+      // Idle timeout after handshake → mitm_no_request (not during WS relay).
+      // Do not session-bypass on timeout — speculative CONNECTs must not poison WSS MITM.
       serverTLS.throwOnIdleTimeout = true
 
       // Early sniff: abort only on clear non-HTTP/1.1 (h2, binary, unsupported method).
@@ -543,7 +575,7 @@ final class LocalProxyServer {
         return .hardFailure(
           detail: Self.formatSniffDetail(sniff, bytes: peek),
           peek: peek,
-          bypassHost: true,
+          bypassHost: unsupportedBypassHost(mitmHost),
           reasonCode: "mitm_unsupported"
         )
       }
@@ -603,7 +635,7 @@ final class LocalProxyServer {
           return .hardFailure(
             detail: Self.formatSniffDetail(bad, bytes: peek),
             peek: peek,
-            bypassHost: true,
+            bypassHost: unsupportedBypassHost(mitmHost),
             reasonCode: "mitm_unsupported"
           )
         }
@@ -751,15 +783,22 @@ final class LocalProxyServer {
           headers: parsed.headers,
           body: parsed.body
         )
+        defer {
+          if let url = upstreamResponse.bodyFileURL {
+            try? FileManager.default.removeItem(at: url)
+          }
+        }
 
         let totalMs = max(1, Int(Date().timeIntervalSince(t0) * 1000))
-        let responseBytes = Self.encodeHTTP11Response(
+        try Self.writeHTTP11ResponseStreaming(
+          to: serverTLS,
           status: upstreamResponse.status,
           headers: upstreamResponse.headers,
-          body: upstreamResponse.body,
+          bodyFileURL: upstreamResponse.bodyFileURL,
+          bodyFallback: upstreamResponse.body,
+          contentLength: upstreamResponse.wireBodyBytes,
           connectionClose: !keepAlive
         )
-        try serverTLS.write(responseBytes)
 
         let reqContentType = parsed.headers.first { $0.key.lowercased() == "content-type" }?.value
         let reqContentEncoding = parsed.headers.first { $0.key.lowercased() == "content-encoding" }?.value
@@ -785,7 +824,9 @@ final class LocalProxyServer {
           "responseBody": LenswireShared.classifyBody(
             upstreamResponse.body,
             contentType: resContentType,
-            contentEncoding: resContentEncoding
+            contentEncoding: resContentEncoding,
+            forceTruncated: upstreamResponse.bodyTruncated,
+            wireSize: upstreamResponse.wireBodyBytes
           ),
           "timing": Self.timingSample(
             connectMs: totalMs,
@@ -846,7 +887,7 @@ final class LocalProxyServer {
         return .hardFailure(
           detail: "guess=empty; bytes=0; cause=timeout",
           peek: capturedPeek,
-          bypassHost: true,
+          bypassHost: MitmSessionBypassPolicy.shouldSessionBypassNoRequestTimeout(),
           reasonCode: "mitm_no_request"
         )
       }
@@ -872,6 +913,10 @@ final class LocalProxyServer {
     var status: Int
     var headers: [String: String]
     var body: Data
+    var bodyTruncated: Bool = false
+    var wireBodyBytes: Int = 0
+    /// Temp file with the full upstream body for streaming to the client; caller must delete.
+    var bodyFileURL: URL? = nil
   }
 
   private static func parseHTTPRequest(_ data: Data) -> ParsedRequest {
@@ -879,7 +924,7 @@ final class LocalProxyServer {
       return ParsedRequest(method: "GET", path: "/", query: "", pathWithQuery: "/", headers: [:], body: Data())
     }
     let headerData = data.subdata(in: data.startIndex..<headerRange.lowerBound)
-    let body = data.subdata(in: headerRange.upperBound..<data.endIndex)
+    let rawBody = data.subdata(in: headerRange.upperBound..<data.endIndex)
     let text = String(data: headerData, encoding: .utf8) ?? ""
     let lines = text.components(separatedBy: "\r\n")
     let requestLine = lines.first ?? "GET / HTTP/1.1"
@@ -898,6 +943,13 @@ final class LocalProxyServer {
       guard hp.count == 2 else { continue }
       headers[String(hp[0])] = hp[1].trimmingCharacters(in: .whitespaces)
     }
+    let body: Data
+    if isChunked(headers: headers) {
+      body = decodeChunkedBody(rawBody) ?? rawBody
+      headers = headers.filter { $0.key.lowercased() != "transfer-encoding" }
+    } else {
+      body = rawBody
+    }
     return ParsedRequest(
       method: method,
       path: path.isEmpty ? "/" : path,
@@ -906,6 +958,64 @@ final class LocalProxyServer {
       headers: headers,
       body: body
     )
+  }
+
+  private static func isChunked(headers: [String: String]) -> Bool {
+    guard let value = headers.first(where: { $0.key.lowercased() == "transfer-encoding" })?.value else {
+      return false
+    }
+    return value.lowercased().contains("chunked")
+  }
+
+  /// Decode a complete HTTP/1.1 chunked body. Returns nil if incomplete/invalid.
+  private static func decodeChunkedBody(_ raw: Data) -> Data? {
+    var index = raw.startIndex
+    var out = Data()
+    while index < raw.endIndex {
+      guard let lineEnd = indexOfCrlf(raw, from: index) else { return nil }
+      let lineData = raw.subdata(in: index..<lineEnd)
+      let line = String(data: lineData, encoding: .utf8) ?? ""
+      let sizeToken = line.split(separator: ";", maxSplits: 1).first?
+        .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+      guard let chunkSize = Int(sizeToken, radix: 16), chunkSize >= 0 else { return nil }
+      index = raw.index(lineEnd, offsetBy: 2)
+      if chunkSize == 0 {
+        // Consume trailers until empty line.
+        while true {
+          guard let trailerEnd = indexOfCrlf(raw, from: index) else { return nil }
+          if trailerEnd == index {
+            return out
+          }
+          index = raw.index(trailerEnd, offsetBy: 2)
+        }
+      }
+      guard raw.distance(from: index, to: raw.endIndex) >= chunkSize + 2 else { return nil }
+      let chunkEnd = raw.index(index, offsetBy: chunkSize)
+      if out.count < LenswireShared.maxDecodedBodyBytes {
+        let room = LenswireShared.maxDecodedBodyBytes - out.count
+        let take = min(chunkSize, room)
+        out.append(raw.subdata(in: index..<raw.index(index, offsetBy: take)))
+      }
+      index = chunkEnd
+      guard raw.distance(from: index, to: raw.endIndex) >= 2,
+            raw[index] == 0x0d,
+            raw[raw.index(after: index)] == 0x0a else {
+        return nil
+      }
+      index = raw.index(index, offsetBy: 2)
+    }
+    return nil
+  }
+
+  private static func indexOfCrlf(_ data: Data, from start: Data.Index) -> Data.Index? {
+    var i = start
+    while data.distance(from: i, to: data.endIndex) >= 2 {
+      if data[i] == 0x0d && data[data.index(after: i)] == 0x0a {
+        return i
+      }
+      i = data.index(after: i)
+    }
+    return nil
   }
 
   private static func containsHeaderEnd(_ data: Data) -> Bool {
@@ -964,7 +1074,9 @@ final class LocalProxyServer {
     request.httpBody = body.isEmpty ? nil : body
     for (key, value) in headers {
       let lower = key.lowercased()
-      if lower == "proxy-connection" || lower == "connection" || lower == "content-length" || lower == "host" {
+      if lower == "proxy-connection" || lower == "connection" || lower == "content-length"
+        || lower == "host" || lower == "transfer-encoding"
+      {
         continue
       }
       request.setValue(value, forHTTPHeaderField: key)
@@ -979,7 +1091,7 @@ final class LocalProxyServer {
     var result: UpstreamResult?
     var taskError: Error?
 
-    session.dataTask(with: request) { data, response, error in
+    session.downloadTask(with: request) { location, response, error in
       defer { semaphore.signal() }
       if let error {
         taskError = error
@@ -994,10 +1106,14 @@ final class LocalProxyServer {
           }
         }
       }
+      let tee = teeFileForCapture(location: location, maxCaptureBytes: LenswireShared.maxDecodedBodyBytes)
       result = UpstreamResult(
         status: http?.statusCode ?? 502,
         headers: responseHeaders,
-        body: data ?? Data()
+        body: tee.capture,
+        bodyTruncated: tee.truncated,
+        wireBodyBytes: tee.wireBytes,
+        bodyFileURL: tee.fileURL
       )
     }.resume()
 
@@ -1007,6 +1123,76 @@ final class LocalProxyServer {
       throw NSError(domain: "LenswireProxy", code: 11, userInfo: [NSLocalizedDescriptionKey: "Upstream timeout"])
     }
     return result
+  }
+
+  private struct TeeFileResult {
+    let capture: Data
+    let truncated: Bool
+    let wireBytes: Int
+    let fileURL: URL?
+  }
+
+  /// Persist downloadTask body to a temp file; keep only [maxCaptureBytes] in memory for capture.
+  private static func teeFileForCapture(location: URL?, maxCaptureBytes: Int) -> TeeFileResult {
+    guard let location else {
+      return TeeFileResult(capture: Data(), truncated: false, wireBytes: 0, fileURL: nil)
+    }
+    let dest = FileManager.default.temporaryDirectory
+      .appendingPathComponent("lenswire-body-\(UUID().uuidString)")
+    do {
+      try FileManager.default.copyItem(at: location, to: dest)
+    } catch {
+      return TeeFileResult(capture: Data(), truncated: false, wireBytes: 0, fileURL: nil)
+    }
+    let wireBytes = (try? FileManager.default.attributesOfItem(atPath: dest.path)[.size] as? Int) ?? 0
+    guard let handle = try? FileHandle(forReadingFrom: dest) else {
+      try? FileManager.default.removeItem(at: dest)
+      return TeeFileResult(capture: Data(), truncated: false, wireBytes: 0, fileURL: nil)
+    }
+    defer { try? handle.close() }
+    let capture = (try? handle.read(upToCount: maxCaptureBytes)) ?? Data()
+    let truncated = wireBytes > capture.count
+    return TeeFileResult(
+      capture: capture,
+      truncated: truncated,
+      wireBytes: wireBytes,
+      fileURL: dest
+    )
+  }
+
+  private static func writeHTTP11ResponseStreaming(
+    to tls: TLSBridge,
+    status: Int,
+    headers: [String: String],
+    bodyFileURL: URL?,
+    bodyFallback: Data,
+    contentLength: Int,
+    connectionClose: Bool
+  ) throws {
+    var headerLines = ["HTTP/1.1 \(status) \(HTTPURLResponse.localizedString(forStatusCode: status))"]
+    for (key, value) in headers {
+      let lower = key.lowercased()
+      if lower == "transfer-encoding" || lower == "content-length" || lower == "connection" { continue }
+      headerLines.append("\(key): \(value)")
+    }
+    headerLines.append("Content-Length: \(contentLength)")
+    headerLines.append("Connection: \(connectionClose ? "close" : "keep-alive")")
+    headerLines.append("")
+    headerLines.append("")
+    try tls.write(headerLines.joined(separator: "\r\n").data(using: .utf8) ?? Data())
+
+    if let bodyFileURL, let handle = try? FileHandle(forReadingFrom: bodyFileURL) {
+      defer { try? handle.close() }
+      while true {
+        let chunk = try handle.read(upToCount: 32 * 1024) ?? Data()
+        if chunk.isEmpty { break }
+        try tls.write(chunk)
+      }
+      return
+    }
+    if !bodyFallback.isEmpty {
+      try tls.write(bodyFallback)
+    }
   }
 
   private static func forwardHTTP(
@@ -1127,7 +1313,7 @@ final class LocalProxyServer {
     request.httpBody = parsed.body.isEmpty ? nil : parsed.body
     for (key, value) in parsed.headers {
       let lower = key.lowercased()
-      if lower == "proxy-connection" || lower == "content-length" { continue }
+      if lower == "proxy-connection" || lower == "content-length" || lower == "transfer-encoding" { continue }
       request.setValue(value, forHTTPHeaderField: key)
     }
 
@@ -1135,7 +1321,7 @@ final class LocalProxyServer {
     config.connectionProxyDictionary = [:]
     let session = URLSession(configuration: config)
 
-    session.dataTask(with: request) { data, response, error in
+    session.downloadTask(with: request) { location, response, error in
       let totalMs = max(1, Int(Date().timeIntervalSince(t0) * 1000))
       let status = (response as? HTTPURLResponse)?.statusCode ?? (error == nil ? 200 : 502)
       var responseHeaders: [String: String] = [:]
@@ -1146,7 +1332,12 @@ final class LocalProxyServer {
           }
         }
       }
-      let bodyData = data ?? Data()
+      let tee = teeFileForCapture(location: location, maxCaptureBytes: LenswireShared.maxDecodedBodyBytes)
+      defer {
+        if let url = tee.fileURL {
+          try? FileManager.default.removeItem(at: url)
+        }
+      }
       let reqCT = parsed.headers.first { $0.key.lowercased() == "content-type" }?.value
       let reqCE = parsed.headers.first { $0.key.lowercased() == "content-encoding" }?.value
       let resCT = responseHeaders.first { $0.key.lowercased() == "content-type" }?.value
@@ -1162,7 +1353,13 @@ final class LocalProxyServer {
         "requestHeaders": parsed.headers,
         "responseHeaders": responseHeaders,
         "requestBody": LenswireShared.classifyBody(parsed.body, contentType: reqCT, contentEncoding: reqCE),
-        "responseBody": LenswireShared.classifyBody(bodyData, contentType: resCT, contentEncoding: resCE),
+        "responseBody": LenswireShared.classifyBody(
+          tee.capture,
+          contentType: resCT,
+          contentEncoding: resCE,
+          forceTruncated: tee.truncated,
+          wireSize: tee.wireBytes
+        ),
         "timing": emptyTiming(totalMs: totalMs),
         "overrideApplied": overrideApplied ?? NSNull(),
         "reasonCode": "http_plain",
@@ -1191,8 +1388,49 @@ final class LocalProxyServer {
         return
       }
 
-      sendHTTPResponse(client: client, status: http.statusCode, headers: responseHeaders, body: bodyData)
+      sendHTTPResponseStreaming(
+        client: client,
+        status: http.statusCode,
+        headers: responseHeaders,
+        bodyFileURL: tee.fileURL,
+        bodyFallback: tee.capture,
+        contentLength: tee.wireBytes
+      )
     }.resume()
+  }
+
+  private static func sendHTTPResponseStreaming(
+    client: NWConnection,
+    status: Int,
+    headers: [String: String],
+    bodyFileURL: URL?,
+    bodyFallback: Data,
+    contentLength: Int
+  ) {
+    var headerLines = ["HTTP/1.1 \(status) \(HTTPURLResponse.localizedString(forStatusCode: status))"]
+    for (key, value) in headers {
+      if key.lowercased() == "transfer-encoding" { continue }
+      if key.lowercased() == "content-length" { continue }
+      headerLines.append("\(key): \(value)")
+    }
+    headerLines.append("Content-Length: \(contentLength)")
+    headerLines.append("Connection: close")
+    headerLines.append("")
+    headerLines.append("")
+    var payload = headerLines.joined(separator: "\r\n").data(using: .utf8) ?? Data()
+    if let bodyFileURL, let handle = try? FileHandle(forReadingFrom: bodyFileURL) {
+      defer { try? handle.close() }
+      while true {
+        let chunk = (try? handle.read(upToCount: 32 * 1024)) ?? Data()
+        if chunk.isEmpty { break }
+        payload.append(chunk)
+      }
+    } else {
+      payload.append(bodyFallback)
+    }
+    client.send(content: payload, completion: .contentProcessed { _ in
+      client.cancel()
+    })
   }
 
   private static func sendHTTPResponse(
@@ -1442,37 +1680,45 @@ final class LocalProxyServer {
       base = "No TLS ClientHello observed; connection is captured as a tunnel only."
     case "mitm_bypassed":
       if let causeLabel = Self.bypassCauseLabel(bypassCause) {
-        base = "Session bypass (\(causeLabel)); connection is captured as a tunnel only."
+        base = "Session bypass (\(causeLabel)); connection is captured as a tunnel only. Stop VPN to clear."
       } else {
-        base = "Host is in MITM bypass list; connection is captured as a tunnel only."
+        base = "Host is in MITM bypass list; connection is captured as a tunnel only. Stop VPN to clear."
       }
     case "mitm_fail_open":
       base = "MITM failed; proxy switched to fail-open tunnel mode."
     case "mitm_handshake_failed":
       base = "TLS handshake rejected (client did not trust Lenswire CA, or TLS mismatch). Host bypassed for this VPN session."
     case "mitm_unsupported":
+      let sessionBypass = !(bypassCause ?? "").isEmpty
+      let end = sessionBypass
+        ? "connection closed and host bypassed for this VPN session."
+        : "connection closed. Host was not added to session bypass."
       if d.range(of: "guess=http2", options: .caseInsensitive) != nil {
-        base = "HTTP/2 after MITM handshake; connection closed and host bypassed for this VPN session."
+        base = "HTTP/2 after MITM handshake; \(end)"
       } else if d.range(of: "guess=non_http", options: .caseInsensitive) != nil {
-        base = "Non-HTTP/binary payload after MITM handshake; connection closed and host bypassed for this VPN session."
+        base = "Non-HTTP/binary payload after MITM handshake; \(end)"
       } else if d.range(of: "guess=http11", options: .caseInsensitive) != nil {
-        base = "Unsupported HTTP method after MITM; connection closed and host bypassed for this VPN session."
+        base = "Unsupported HTTP method after MITM; \(end)"
       } else {
-        base = "Unsupported protocol after MITM; connection closed and host bypassed for this VPN session."
+        base = "Unsupported protocol after MITM; \(end)"
       }
     case "mitm_no_request":
       if d.range(of: "cause=timeout", options: .caseInsensitive) != nil {
-        base = "No HTTP request after MITM handshake (read timeout); connection closed and host bypassed for this VPN session."
+        base = "No HTTP request after MITM handshake (read timeout); connection closed. Host was not added to session bypass."
       } else if d.range(of: "cause=eof", options: .caseInsensitive) != nil
         || d.range(of: "guess=empty", options: .caseInsensitive) != nil {
         base = "No HTTP request after MITM handshake (client closed); connection closed. Host was not added to session bypass."
-      } else {
+      } else if !(bypassCause ?? "").isEmpty {
         base = "No HTTP request after MITM handshake; connection closed and host bypassed for this VPN session."
+      } else {
+        base = "No HTTP request after MITM handshake; connection closed. Host was not added to session bypass."
       }
     case "mitm_websocket":
       base = "WebSocket upgrade was relayed historically; prefer websocket_relay (frames not inspected)."
     case "websocket_relay":
       base = "WebSocket upgrade relayed to upstream; frames are not inspected."
+    case "websocket_frames":
+      base = "WebSocket frames inspected (read-only); no inject or rewrite."
     case "mitm_error":
       base = "MITM proxy error after TLS handshake; connection closed (not fail-open tunnel)."
     case "alpn_no_http11":
@@ -1678,7 +1924,7 @@ final class LocalProxyServer {
         "requestBody": LenswireShared.classifyBody(parsed.body, contentType: reqCT, contentEncoding: reqCE),
         "responseBody": LenswireShared.classifyBody(Data(), contentType: nil),
         "timing": Self.timingSample(totalMs: totalMs),
-        "reasonCode": "websocket_relay",
+        "reasonCode": "websocket_frames",
         "hostnameSource": hostnameSource,
         "hostnameConfidence": hostnameConfidence,
         "sniHostname": sniHostname ?? NSNull(),
@@ -1688,8 +1934,10 @@ final class LocalProxyServer {
         "connectPort": Int(port),
         "effectiveHost": upstreamHost,
         "captureMode": captureMode,
-        "httpPayloadAvailable": false,
-        "captureSummary": Self.summaryForReason("websocket_relay"),
+        "httpPayloadAvailable": true,
+        "wsFrames": [],
+        "wsFrameCount": 0,
+        "captureSummary": Self.summaryForReason("websocket_frames"),
         "tlsClientHelloBytes": clientHelloBytes,
         "tlsRecordVersion": tlsMeta?.recordVersion ?? NSNull(),
         "tlsClientVersion": tlsMeta?.clientVersion ?? NSNull(),
@@ -1698,6 +1946,8 @@ final class LocalProxyServer {
         "tlsNegotiatedAlpn": tlsNegotiatedAlpn ?? NSNull(),
         "upstreamHttpVersion": "HTTP/1.1",
       ])
+      self.noteWsMitmHost(upstreamHost)
+      self.noteWsMitmHost(connectHost)
 
       if status != 101 {
         serverTLS.close()
@@ -1709,35 +1959,54 @@ final class LocalProxyServer {
         return .success
       }
 
+      let recorder = WsFrameCaptureRecorder(captureId: id)
       let pipeQueue = DispatchQueue(label: "lenswire.ws.pipe.\(id)", attributes: .concurrent)
       if let upstreamTLS {
-        pipeQueue.async {
-          while true {
-            do {
-              let chunk = try serverTLS.read()
-              try upstreamTLS.write(chunk)
-            } catch {
-              serverTLS.close()
-              upstreamTLS.close()
-              break
-            }
-          }
+        let teardown = WsPipeTeardown(recorder: recorder) {
+          serverTLS.close()
+          upstreamTLS.close()
         }
         pipeQueue.async {
-          while true {
-            do {
-              let chunk = try upstreamTLS.read()
-              try serverTLS.write(chunk)
-            } catch {
-              serverTLS.close()
-              upstreamTLS.close()
-              break
-            }
-          }
+          Self.relayWsTLS(
+            serverTLS,
+            to: upstreamTLS,
+            dir: "client",
+            recorder: recorder,
+            onFinished: { teardown.directionFinished() }
+          )
+        }
+        pipeQueue.async {
+          Self.relayWsTLS(
+            upstreamTLS,
+            to: serverTLS,
+            dir: "server",
+            recorder: recorder,
+            initialInspectOnly: responseLeftover,
+            onFinished: { teardown.directionFinished() }
+          )
         }
       } else {
-        Self.relayTLSBridge(serverTLS, to: upstreamConn, queue: pipeQueue)
-        Self.relayNW(upstreamConn, to: serverTLS, queue: pipeQueue)
+        let teardown = WsPipeTeardown(recorder: recorder) {
+          serverTLS.close()
+          upstreamConn.cancel()
+        }
+        Self.relayWsTLSBridge(
+          serverTLS,
+          to: upstreamConn,
+          dir: "client",
+          recorder: recorder,
+          queue: pipeQueue,
+          onFinished: { teardown.directionFinished() }
+        )
+        Self.relayWsNW(
+          upstreamConn,
+          to: serverTLS,
+          dir: "server",
+          recorder: recorder,
+          queue: pipeQueue,
+          initialInspectOnly: responseLeftover,
+          onFinished: { teardown.directionFinished() }
+        )
       }
       return .success
     } catch {
@@ -1824,6 +2093,8 @@ final class LocalProxyServer {
         "id": id,
         "startedAt": startedAt,
         "method": parsed.method,
+        "scheme": scheme,
+        "host": upstreamHost,
         "path": parsed.path,
         "query": parsed.query,
         "status": status,
@@ -1832,7 +2103,7 @@ final class LocalProxyServer {
         "requestBody": LenswireShared.classifyBody(parsed.body, contentType: reqCT, contentEncoding: reqCE),
         "responseBody": LenswireShared.classifyBody(Data(), contentType: nil),
         "timing": emptyTiming(totalMs: totalMs),
-        "reasonCode": "websocket_relay",
+        "reasonCode": "websocket_frames",
         "hostnameSource": "host_header",
         "hostnameConfidence": "high",
         "sniHostname": NSNull(),
@@ -1842,14 +2113,17 @@ final class LocalProxyServer {
         "connectPort": NSNull(),
         "effectiveHost": upstreamHost,
         "captureMode": "http",
-        "httpPayloadAvailable": false,
-        "captureSummary": summaryForReason("websocket_relay"),
+        "httpPayloadAvailable": true,
+        "wsFrames": [],
+        "wsFrameCount": 0,
+        "captureSummary": summaryForReason("websocket_frames"),
         "tlsClientHelloBytes": NSNull(),
         "tlsRecordVersion": NSNull(),
         "tlsClientVersion": NSNull(),
         "tlsAlpnProtocols": [],
         "tlsSniPresent": NSNull(),
       ])
+      self.noteWsMitmHost(upstreamHost)
 
       if status != 101 {
         client.cancel()
@@ -1861,13 +2135,52 @@ final class LocalProxyServer {
         return false
       }
 
+      let recorder = WsFrameCaptureRecorder(captureId: id)
       if let upstreamTLS {
+        let teardown = WsPipeTeardown(recorder: recorder) {
+          client.cancel()
+          upstreamTLS.close()
+        }
         // HTTPS WebSocket over plain HTTP proxy: relay client NW <-> upstream TLSBridge.
-        relayNW(client, to: upstreamTLS, queue: queue)
-        relayTLSBridge(upstreamTLS, to: client, queue: queue)
+        Self.relayWsNW(
+          client,
+          to: upstreamTLS,
+          dir: "client",
+          recorder: recorder,
+          queue: queue,
+          onFinished: { teardown.directionFinished() }
+        )
+        Self.relayWsTLSBridge(
+          upstreamTLS,
+          to: client,
+          dir: "server",
+          recorder: recorder,
+          queue: queue,
+          initialInspectOnly: headerRead.leftover,
+          onFinished: { teardown.directionFinished() }
+        )
       } else {
-        relay(from: client, to: upstreamConn, queue: queue)
-        relay(from: upstreamConn, to: client, queue: queue)
+        let teardown = WsPipeTeardown(recorder: recorder) {
+          client.cancel()
+          upstreamConn.cancel()
+        }
+        Self.relayWsNWConn(
+          from: client,
+          to: upstreamConn,
+          dir: "client",
+          recorder: recorder,
+          queue: queue,
+          onFinished: { teardown.directionFinished() }
+        )
+        Self.relayWsNWConn(
+          from: upstreamConn,
+          to: client,
+          dir: "server",
+          recorder: recorder,
+          queue: queue,
+          initialInspectOnly: headerRead.leftover,
+          onFinished: { teardown.directionFinished() }
+        )
       }
       return true
     } catch {
@@ -1950,6 +2263,275 @@ final class LocalProxyServer {
       }
     }
     queue.async { loop() }
+  }
+
+  // MARK: - WebSocket frame inspect (read-only tee)
+
+  private final class WsInspectState {
+    var enabled = true
+  }
+
+  /// Countdown teardown: only the last finished direction closes both peers (no TLS half-close).
+  private final class WsPipeTeardown {
+    private let lock = NSLock()
+    private var remaining = 2
+    private let recorder: WsFrameCaptureRecorder
+    private let closeBoth: () -> Void
+
+    init(recorder: WsFrameCaptureRecorder, closeBoth: @escaping () -> Void) {
+      self.recorder = recorder
+      self.closeBoth = closeBoth
+    }
+
+    func directionFinished() {
+      lock.lock()
+      remaining -= 1
+      let done = remaining <= 0
+      lock.unlock()
+      if done {
+        closeBoth()
+        recorder.markClosed(reason: "eof")
+        recorder.flush(force: true)
+      }
+    }
+  }
+
+  /// Best-effort frame ingest after bytes were already forwarded (never affects the pipe).
+  private static func ingestWsChunk(
+    _ chunk: Data,
+    parser: WebSocketFrameParser,
+    assembler: WebSocketMessageAssembler,
+    dir: String,
+    recorder: WsFrameCaptureRecorder,
+    state: WsInspectState
+  ) {
+    guard state.enabled else { return }
+    // Mirror Android fail-open: any unexpected failure disables inspect for this direction only.
+    let ok = autoreleasepool { () -> Bool in
+      parser.append(chunk)
+      for raw in parser.drain() {
+        guard let message = assembler.accept(raw) else { continue }
+        if message.omitted {
+          recorder.markOmitted()
+          continue
+        }
+        if message.rsv != 0 { recorder.markCompressed() }
+        recorder.record(dir: dir, opcode: message.opcode, payload: message.payload, rsv: message.rsv)
+      }
+      return true
+    }
+    if !ok {
+      state.enabled = false
+    }
+  }
+
+  private static func relayWsTLS(
+    _ source: TLSBridge,
+    to dest: TLSBridge,
+    dir: String,
+    recorder: WsFrameCaptureRecorder,
+    initialInspectOnly: Data = Data(),
+    onFinished: (() -> Void)? = nil
+  ) {
+    let parser = WebSocketFrameParser()
+    let assembler = WebSocketMessageAssembler()
+    let inspect = WsInspectState()
+    if !initialInspectOnly.isEmpty {
+      ingestWsChunk(
+        initialInspectOnly,
+        parser: parser,
+        assembler: assembler,
+        dir: dir,
+        recorder: recorder,
+        state: inspect
+      )
+    }
+    while true {
+      do {
+        let chunk = try source.read()
+        try dest.write(chunk)
+        ingestWsChunk(chunk, parser: parser, assembler: assembler, dir: dir, recorder: recorder, state: inspect)
+      } catch {
+        // Do not close dest — peer direction must still forward Close / drain.
+        break
+      }
+    }
+    recorder.flush(force: true)
+    if let onFinished {
+      onFinished()
+    } else {
+      source.close()
+      dest.close()
+      recorder.markClosed(reason: "eof")
+    }
+  }
+
+  private static func relayWsTLSBridge(
+    _ source: TLSBridge,
+    to dest: NWConnection,
+    dir: String,
+    recorder: WsFrameCaptureRecorder,
+    queue: DispatchQueue,
+    initialInspectOnly: Data = Data(),
+    onFinished: (() -> Void)? = nil
+  ) {
+    let parser = WebSocketFrameParser()
+    let assembler = WebSocketMessageAssembler()
+    let inspect = WsInspectState()
+    queue.async {
+      if !initialInspectOnly.isEmpty {
+        ingestWsChunk(
+          initialInspectOnly,
+          parser: parser,
+          assembler: assembler,
+          dir: dir,
+          recorder: recorder,
+          state: inspect
+        )
+      }
+      while true {
+        do {
+          let chunk = try source.read()
+          let sem = DispatchSemaphore(value: 0)
+          var failed = false
+          dest.send(content: chunk, completion: .contentProcessed { error in
+            failed = error != nil
+            sem.signal()
+          })
+          _ = sem.wait(timeout: .now() + 30)
+          if failed { break }
+          ingestWsChunk(chunk, parser: parser, assembler: assembler, dir: dir, recorder: recorder, state: inspect)
+        } catch {
+          break
+        }
+      }
+      recorder.flush(force: true)
+      if let onFinished {
+        onFinished()
+      } else {
+        source.close()
+        dest.cancel()
+        recorder.markClosed(reason: "eof")
+      }
+    }
+  }
+
+  private static func relayWsNW(
+    _ source: NWConnection,
+    to dest: TLSBridge,
+    dir: String,
+    recorder: WsFrameCaptureRecorder,
+    queue: DispatchQueue,
+    initialInspectOnly: Data = Data(),
+    onFinished: (() -> Void)? = nil
+  ) {
+    let parser = WebSocketFrameParser()
+    let assembler = WebSocketMessageAssembler()
+    let inspect = WsInspectState()
+    func finish() {
+      recorder.flush(force: true)
+      if let onFinished {
+        onFinished()
+      } else {
+        source.cancel()
+        dest.close()
+        recorder.markClosed(reason: "eof")
+      }
+    }
+    func loop() {
+      source.receive(minimumIncompleteLength: 1, maximumLength: 65536) { data, _, isComplete, error in
+        if let data, !data.isEmpty {
+          do {
+            try dest.write(data)
+            ingestWsChunk(data, parser: parser, assembler: assembler, dir: dir, recorder: recorder, state: inspect)
+            if isComplete || error != nil {
+              finish()
+            } else {
+              loop()
+            }
+          } catch {
+            finish()
+          }
+        } else {
+          finish()
+        }
+      }
+    }
+    queue.async {
+      if !initialInspectOnly.isEmpty {
+        ingestWsChunk(
+          initialInspectOnly,
+          parser: parser,
+          assembler: assembler,
+          dir: dir,
+          recorder: recorder,
+          state: inspect
+        )
+      }
+      loop()
+    }
+  }
+
+  private static func relayWsNWConn(
+    from source: NWConnection,
+    to dest: NWConnection,
+    dir: String,
+    recorder: WsFrameCaptureRecorder,
+    queue: DispatchQueue,
+    initialInspectOnly: Data = Data(),
+    onFinished: (() -> Void)? = nil
+  ) {
+    let parser = WebSocketFrameParser()
+    let assembler = WebSocketMessageAssembler()
+    let inspect = WsInspectState()
+    func finish() {
+      recorder.flush(force: true)
+      if let onFinished {
+        onFinished()
+      } else {
+        source.cancel()
+        dest.cancel()
+        recorder.markClosed(reason: "eof")
+      }
+    }
+    func loop() {
+      source.receive(minimumIncompleteLength: 1, maximumLength: 65536) { data, _, isComplete, error in
+        if let data, !data.isEmpty {
+          let sem = DispatchSemaphore(value: 0)
+          var failed = false
+          dest.send(content: data, completion: .contentProcessed { sendError in
+            failed = sendError != nil
+            sem.signal()
+          })
+          _ = sem.wait(timeout: .now() + 30)
+          if failed {
+            finish()
+            return
+          }
+          ingestWsChunk(data, parser: parser, assembler: assembler, dir: dir, recorder: recorder, state: inspect)
+          if isComplete || error != nil {
+            finish()
+          } else {
+            loop()
+          }
+        } else {
+          finish()
+        }
+      }
+    }
+    queue.async {
+      if !initialInspectOnly.isEmpty {
+        ingestWsChunk(
+          initialInspectOnly,
+          parser: parser,
+          assembler: assembler,
+          dir: dir,
+          recorder: recorder,
+          state: inspect
+        )
+      }
+      loop()
+    }
   }
 
   private static let http2Preface = Data("PRI * HTTP/2.0".utf8)

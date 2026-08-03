@@ -12,6 +12,7 @@ import java.net.URI
 import java.net.URL
 import java.io.ByteArrayOutputStream
 import java.io.InputStream
+import java.io.OutputStream
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ExecutorService
@@ -34,13 +35,26 @@ class LocalProxyServer(
   private val mitmContexts = ConcurrentHashMap<String, SSLContext>()
   /**
    * Session MITM bypass: host → cause reasonCode that first triggered bypass
-   * (e.g. mitm_handshake_failed, mitm_unsupported, mitm_no_request).
+   * (e.g. mitm_handshake_failed, mitm_unsupported).
    */
   private val mitmBypassHosts = ConcurrentHashMap<String, String>()
+  /** Hosts that completed a successful websocket_frames MITM this VPN session. */
+  private val wsMitmHosts: MutableSet<String> = ConcurrentHashMap.newKeySet()
 
   private fun addMitmBypass(host: String, cause: String) {
     mitmBypassHosts.putIfAbsent(host.lowercase(), cause)
   }
+
+  private fun noteWsMitmHost(host: String) {
+    val key = host.trim().lowercase()
+    if (key.isNotEmpty()) wsMitmHosts.add(key)
+  }
+
+  private fun hostHadSuccessfulWsMitm(host: String): Boolean =
+    wsMitmHosts.contains(host.trim().lowercase())
+
+  private fun unsupportedBypassHost(host: String): Boolean =
+    MitmSessionBypassPolicy.shouldSessionBypassUnsupported(hostHadSuccessfulWsMitm(host))
 
   private fun mitmBypassCause(host: String): String? = mitmBypassHosts[host.lowercase()]
 
@@ -58,6 +72,7 @@ class LocalProxyServer(
   fun clearMitmBypass() {
     mitmBypassHosts.clear()
     mitmContexts.clear()
+    wsMitmHosts.clear()
   }
 
   private fun connectUpstreamSocket(host: String, port: Int, timeoutMs: Int): Socket =
@@ -152,12 +167,14 @@ class LocalProxyServer(
     relayPool.shutdownNow()
     mitmBypassHosts.clear()
     mitmContexts.clear()
+    wsMitmHosts.clear()
   }
 
   /** Drop cached MITM SSL contexts (and session bypass) after CA regenerate. */
   fun clearMitmState() {
     mitmContexts.clear()
     mitmBypassHosts.clear()
+    wsMitmHosts.clear()
   }
 
   private fun handleClient(client: Socket) {
@@ -340,7 +357,6 @@ class LocalProxyServer(
       port = port,
       client = client,
       prefix = prefix,
-      id = id,
       startedAt = startedAt,
       clientAttribution = clientAttribution,
       hostnameSource = hostnameSource,
@@ -374,9 +390,10 @@ class LocalProxyServer(
       }
       is MitmOutcome.HandshakeRejected -> {
         // Client already saw (or rejected) our MITM cert — ClientHello replay is impossible.
+        // Fresh UUID: never reuse CONNECT id (may already back a websocket_frames capture).
         addMitmBypass(effectiveHost, "mitm_handshake_failed")
         appendTunnelCapture(
-          id = id,
+          id = UUID.randomUUID().toString(),
           startedAt = startedAt,
           host = effectiveHost,
           connectHost = connectHost,
@@ -396,14 +413,16 @@ class LocalProxyServer(
       }
       is MitmOutcome.HardFailure -> {
         // Do not passthrough this socket: TLS already started; ClientHello replay would desync.
-        // Unsupported protocol / post-handshake silence → bypass host so retries go tunnel-only.
+        // Session bypass only when bypassHost=true (e.g. unsupported proto without prior WS MITM).
+        // Idle no-request timeouts never session-bypass (see MitmSessionBypassPolicy).
         // Keep reasonCode as-is (do not remap bypassHost=false to mitm_error).
+        // Fresh UUID: match iOS; avoid overwriting a WS capture that reused the CONNECT id.
         val failReason = mitmResult.reasonCode
         if (mitmResult.bypassHost) {
           addMitmBypass(effectiveHost, failReason)
         }
         appendTunnelCapture(
-          id = id,
+          id = UUID.randomUUID().toString(),
           startedAt = startedAt,
           host = effectiveHost,
           connectHost = connectHost,
@@ -445,7 +464,6 @@ class LocalProxyServer(
     port: Int,
     client: Socket,
     prefix: ByteArray,
-    id: String,
     startedAt: Long,
     clientAttribution: ClientAttribution?,
     hostnameSource: String,
@@ -497,7 +515,7 @@ class LocalProxyServer(
         return MitmOutcome.HardFailure(
           detail = MitmPayloadSniff.formatDetail(sniff, peekBytes),
           peekBytes = peekBytes,
-          bypassHost = true,
+          bypassHost = unsupportedBypassHost(mitmHost),
           reasonCode = "mitm_unsupported",
         )
       }
@@ -506,7 +524,8 @@ class LocalProxyServer(
       var handledAny = false
       for (reqIndex in 0 until MITM_MAX_KEEPALIVE_REQUESTS) {
         val requestStartedAt = if (reqIndex == 0) startedAt else System.currentTimeMillis()
-        val requestId = if (reqIndex == 0) id else UUID.randomUUID().toString()
+        // Always a fresh UUID (match iOS). Reusing CONNECT id let HardFailure overwrite WS frames.
+        val requestId = UUID.randomUUID().toString()
         val requestData = HttpIo.readHttpMessage(tlsSocket.inputStream, readPrefix)
         readPrefix = ByteArray(0)
         if (requestData.isEmpty() || requestData.all { it == ' '.code.toByte() || it == '\t'.code.toByte() ||
@@ -542,7 +561,7 @@ class LocalProxyServer(
               peekBytes,
             ),
             peekBytes = peekBytes,
-            bypassHost = true,
+            bypassHost = unsupportedBypassHost(mitmHost),
             reasonCode = "mitm_unsupported",
           )
         }
@@ -672,14 +691,7 @@ class LocalProxyServer(
           overrideApplied = "request"
         }
 
-        val upstream = fetchHttps(upstreamHost, port, parsed)
-        HttpIo.writeHttpResponse(
-          tlsSocket.outputStream,
-          upstream.status,
-          upstream.headers,
-          upstream.body,
-          connectionClose = !keepAlive,
-        )
+        val upstream = fetchHttps(upstreamHost, port, parsed, tlsSocket.outputStream, connectionClose = !keepAlive)
         val doneMs = System.currentTimeMillis()
 
         CaptureStore.append(
@@ -696,7 +708,12 @@ class LocalProxyServer(
             "requestHeaders" to parsed.headers,
             "responseHeaders" to upstream.headers,
             "requestBody" to classifyBodyWithHeaders(parsed.body, parsed.headers),
-            "responseBody" to classifyBodyWithHeaders(upstream.body, upstream.headers),
+            "responseBody" to classifyBodyWithHeaders(
+              upstream.body,
+              upstream.headers,
+              forceTruncated = upstream.bodyTruncated,
+              wireSize = upstream.wireBodyBytes,
+            ),
             "timing" to timing(
               connectMs = maxOf(0, upstream.totalMs - upstream.ttfbMs - upstream.downloadMs),
               tlsMs = maxOf(0L, handshakeDoneMs - handshakeStartMs).toInt(),
@@ -750,11 +767,12 @@ class LocalProxyServer(
       } else if (isTlsHandshakeFailure(e)) {
         MitmOutcome.HandshakeRejected(detail)
       } else if (e is SocketTimeoutException && !sawHttpRequest) {
-        // Client silent after MITM handshake — cannot fail-open this socket; bypass for retries.
+        // Client silent after MITM handshake — cannot fail-open this socket.
+        // Do not session-bypass: speculative CONNECTs must not poison later WSS MITM.
         MitmOutcome.HardFailure(
           detail = "guess=empty; bytes=0; cause=timeout",
           peekBytes = capturedPeek,
-          bypassHost = true,
+          bypassHost = MitmSessionBypassPolicy.shouldSessionBypassNoRequestTimeout(),
           reasonCode = "mitm_no_request",
         )
       } else if (e is SocketTimeoutException && sawHttpRequest) {
@@ -1119,20 +1137,22 @@ class LocalProxyServer(
         val requestWrittenMs = System.currentTimeMillis()
         val code = conn.responseCode
         val headersMs = System.currentTimeMillis()
+        val respHeaders = responseHeaders(conn)
         val bodyStream = try {
           conn.inputStream
         } catch (_: Exception) {
           conn.errorStream
         }
-        val body = bodyStream?.let { HttpIo.readBounded(it) } ?: ByteArray(0)
-        val bodyDoneMs = System.currentTimeMillis()
-        HttpIo.writeHttpResponse(
-          client.getOutputStream(),
-          code,
-          responseHeaders(conn),
-          body,
+        val tee = HttpIo.streamHttpResponse(
+          out = client.getOutputStream(),
+          status = code,
+          headers = respHeaders,
+          bodyStream = bodyStream,
+          contentLength = upstreamContentLength(conn, respHeaders),
           statusMessage = conn.responseMessage,
+          connectionClose = true,
         )
+        val bodyDoneMs = System.currentTimeMillis()
         client.close()
         CaptureStore.append(
           context,
@@ -1146,9 +1166,14 @@ class LocalProxyServer(
             "query" to query,
             "status" to code,
             "requestHeaders" to effectiveHeaders,
-            "responseHeaders" to responseHeaders(conn),
+            "responseHeaders" to respHeaders,
             "requestBody" to classifyBodyWithHeaders(effectiveBody, effectiveHeaders),
-            "responseBody" to classifyBodyWithHeaders(body, responseHeaders(conn)),
+            "responseBody" to classifyBodyWithHeaders(
+              tee.capture,
+              respHeaders,
+              forceTruncated = tee.truncated,
+              wireSize = tee.wireBytes,
+            ),
             "timing" to timing(
               connectMs = maxOf(0L, requestWrittenMs - startMs).toInt(),
               ttfbMs = maxOf(0L, headersMs - requestWrittenMs).toInt(),
@@ -1234,9 +1259,13 @@ class LocalProxyServer(
     val status: Int,
     val headers: Map<String, String>,
     val body: ByteArray,
+    val bodyTruncated: Boolean = false,
+    val wireBodyBytes: Long = body.size.toLong(),
     val ttfbMs: Int,
     val downloadMs: Int,
     val totalMs: Int,
+    val statusMessage: String? = null,
+    val contentLength: Long? = null,
   )
 
   private data class UpstreamFailureDetail(
@@ -1291,7 +1320,13 @@ private fun upstreamFailureDetail(
     return ParsedRequest(method, path, query, pathWithQuery, headers, decodedBody)
   }
 
-  private fun fetchHttps(host: String, port: Int, req: ParsedRequest): UpstreamResponse {
+  private fun fetchHttps(
+    host: String,
+    port: Int,
+    req: ParsedRequest,
+    clientOut: OutputStream,
+    connectionClose: Boolean,
+  ): UpstreamResponse {
     val startMs = System.currentTimeMillis()
     val pathWithQuery = if (req.pathWithQuery.startsWith("/")) req.pathWithQuery else "/${req.pathWithQuery}"
     val url = URL("https", host, if (port == 443) -1 else port, pathWithQuery)
@@ -1326,19 +1361,33 @@ private fun upstreamFailureDetail(
       val requestWrittenMs = System.currentTimeMillis()
       val status = conn.responseCode
       val headersMs = System.currentTimeMillis()
-      val resBody = try {
-        conn.inputStream?.let { HttpIo.readBounded(it) } ?: ByteArray(0)
+      val headers = responseHeaders(conn)
+      val bodyStream = try {
+        conn.inputStream
       } catch (_: Exception) {
-        conn.errorStream?.let { HttpIo.readBounded(it) } ?: ByteArray(0)
+        conn.errorStream
       }
+      val tee = HttpIo.streamHttpResponse(
+        out = clientOut,
+        status = status,
+        headers = headers,
+        bodyStream = bodyStream,
+        contentLength = upstreamContentLength(conn, headers),
+        statusMessage = conn.responseMessage,
+        connectionClose = connectionClose,
+      )
       val bodyDoneMs = System.currentTimeMillis()
       return UpstreamResponse(
         status = status,
-        headers = responseHeaders(conn),
-        body = resBody,
+        headers = headers,
+        body = tee.capture,
+        bodyTruncated = tee.truncated,
+        wireBodyBytes = tee.wireBytes,
         ttfbMs = maxOf(0L, headersMs - requestWrittenMs).toInt(),
         downloadMs = maxOf(0L, bodyDoneMs - headersMs).toInt(),
         totalMs = maxOf(1L, bodyDoneMs - startMs).toInt(),
+        statusMessage = conn.responseMessage,
+        contentLength = upstreamContentLength(conn, headers),
       )
     } finally {
       runCatching { conn.disconnect() }
@@ -1440,26 +1489,37 @@ private fun upstreamFailureDetail(
       }
       "mitm_fail_open" -> "MITM failed; proxy switched to fail-open tunnel mode."
       "mitm_handshake_failed" -> "TLS handshake rejected (client did not trust Lenswire CA, or TLS mismatch). Host bypassed for this VPN session."
-      "mitm_unsupported" -> when {
-        d.contains("guess=http2", ignoreCase = true) ->
-          "HTTP/2 after MITM handshake; connection closed and host bypassed for this VPN session."
-        d.contains("guess=non_http", ignoreCase = true) ->
-          "Non-HTTP/binary payload after MITM handshake; connection closed and host bypassed for this VPN session."
-        d.contains("guess=http11", ignoreCase = true) ->
-          "Unsupported HTTP method after MITM; connection closed and host bypassed for this VPN session."
-        else ->
-          "Unsupported protocol after MITM; connection closed and host bypassed for this VPN session."
+      "mitm_unsupported" -> {
+        val sessionBypass = !bypassCause.isNullOrBlank()
+        val end = if (sessionBypass) {
+          "connection closed and host bypassed for this VPN session."
+        } else {
+          "connection closed. Host was not added to session bypass."
+        }
+        when {
+          d.contains("guess=http2", ignoreCase = true) ->
+            "HTTP/2 after MITM handshake; $end"
+          d.contains("guess=non_http", ignoreCase = true) ->
+            "Non-HTTP/binary payload after MITM handshake; $end"
+          d.contains("guess=http11", ignoreCase = true) ->
+            "Unsupported HTTP method after MITM; $end"
+          else ->
+            "Unsupported protocol after MITM; $end"
+        }
       }
       "mitm_no_request" -> when {
         d.contains("cause=timeout", ignoreCase = true) ->
-          "No HTTP request after MITM handshake (read timeout); connection closed and host bypassed for this VPN session."
+          "No HTTP request after MITM handshake (read timeout); connection closed. Host was not added to session bypass."
         d.contains("cause=eof", ignoreCase = true) || d.contains("guess=empty", ignoreCase = true) ->
           "No HTTP request after MITM handshake (client closed); connection closed. Host was not added to session bypass."
-        else ->
+        !bypassCause.isNullOrBlank() ->
           "No HTTP request after MITM handshake; connection closed and host bypassed for this VPN session."
+        else ->
+          "No HTTP request after MITM handshake; connection closed. Host was not added to session bypass."
       }
       "mitm_websocket" -> "WebSocket upgrade was relayed historically; prefer websocket_relay (frames not inspected)."
       "websocket_relay" -> "WebSocket upgrade relayed to upstream; frames are not inspected."
+      "websocket_frames" -> "WebSocket frames inspected (read-only); no inject or rewrite."
       "mitm_error" -> "MITM proxy error after TLS handshake; connection closed (not fail-open tunnel)."
       "alpn_no_http11" -> "ClientHello ALPN has no http/1.1; connection is captured as a tunnel only."
       "upstream_connect_failed" -> "Proxy could not connect to upstream target."
@@ -1477,15 +1537,45 @@ private fun upstreamFailureDetail(
     body: ByteArray,
     contentType: String?,
     contentEncoding: String? = null,
+    forceTruncated: Boolean = false,
+    wireSize: Long? = null,
   ): Map<String, Any?> {
-    return CaptureFormatting.classifyBody(body, contentType, contentEncoding)
+    return CaptureFormatting.classifyBody(
+      body,
+      contentType,
+      contentEncoding,
+      forceTruncated = forceTruncated,
+      wireSize = wireSize,
+    )
   }
 
   private fun headerValue(headers: Map<String, String>, name: String): String? =
     headers.entries.firstOrNull { it.key.equals(name, true) }?.value
 
-  private fun classifyBodyWithHeaders(body: ByteArray, headers: Map<String, String>): Map<String, Any?> =
-    classifyBody(body, headerValue(headers, "Content-Type"), headerValue(headers, "Content-Encoding"))
+  private fun classifyBodyWithHeaders(
+    body: ByteArray,
+    headers: Map<String, String>,
+    forceTruncated: Boolean = false,
+    wireSize: Long? = null,
+  ): Map<String, Any?> =
+    classifyBody(
+      body,
+      headerValue(headers, "Content-Type"),
+      headerValue(headers, "Content-Encoding"),
+      forceTruncated = forceTruncated,
+      wireSize = wireSize,
+    )
+
+  private fun upstreamContentLength(conn: HttpURLConnection, headers: Map<String, String>): Long? {
+    val fromConn = conn.contentLengthLong
+    if (fromConn >= 0) return fromConn
+    return headers.entries
+      .firstOrNull { it.key.equals("Content-Length", true) }
+      ?.value
+      ?.trim()
+      ?.toLongOrNull()
+      ?.takeIf { it >= 0 }
+  }
 
 
   private fun timing(
@@ -1521,6 +1611,7 @@ private fun upstreamFailureDetail(
 
   /**
    * Forward a WebSocket upgrade HTTP request to upstream and bidirectional-pipe frames.
+   * Parses RFC 6455 frames for read-only capture (no inject/rewrite).
    * Does not add the host to the MITM bypass list.
    */
   private fun relayWebSocketUpgrade(
@@ -1588,7 +1679,7 @@ private fun upstreamFailureDetail(
             tlsMs = maxOf(0L, handshakeDoneMs - handshakeStartMs).toInt(),
             totalMs = maxOf(1L, doneMs - mitmStartMs),
           ),
-          "reasonCode" to "websocket_relay",
+          "reasonCode" to "websocket_frames",
           "hostnameSource" to hostnameSource,
           "hostnameConfidence" to hostnameConfidence,
           "sniHostname" to sniHostname,
@@ -1598,8 +1689,10 @@ private fun upstreamFailureDetail(
           "connectPort" to port,
           "effectiveHost" to upstreamHost,
           "captureMode" to captureMode,
-          "httpPayloadAvailable" to false,
-          "captureSummary" to summaryForReason("websocket_relay"),
+          "httpPayloadAvailable" to true,
+          "wsFrames" to emptyList<Map<String, Any?>>(),
+          "wsFrameCount" to 0,
+          "captureSummary" to summaryForReason("websocket_frames"),
           "tlsClientHelloBytes" to clientHelloBytes,
           "tlsRecordVersion" to tlsMeta?.recordVersion,
           "tlsClientVersion" to tlsMeta?.clientVersion,
@@ -1609,6 +1702,8 @@ private fun upstreamFailureDetail(
           "upstreamHttpVersion" to "HTTP/1.1",
         ) + ClientAttributionHeaders.asCaptureFields(clientAttribution),
       )
+      noteWsMitmHost(upstreamHost)
+      noteWsMitmHost(connectHost)
 
       if (status != 0 && status != 101) {
         // Non-upgrade response: headers already forwarded; close both sides.
@@ -1619,17 +1714,124 @@ private fun upstreamFailureDetail(
 
       runCatching { clientTls.soTimeout = 0 }
       runCatching { up.soTimeout = 0 }
-      relayBidirectional(clientTls, up)
+      relayWebSocketInspected(clientTls, up, id)
       MitmOutcome.Success
     } catch (e: Exception) {
       runCatching { upstream?.close() }
       runCatching { clientTls.close() }
       android.util.Log.w("LenswireMITM", "WebSocket relay failed host=$upstreamHost: ${e.message}", e)
+      val failure = upstreamFailureDetail(scheme, upstreamHost, port, e)
+      // Known transport failures (DNS/connect/timeout) get specific codes; other surprises stay mitm_error.
+      val reason = when (failure.reasonCode) {
+        "http_dns_failed",
+        "upstream_connect_failed",
+        "http_upstream_timeout",
+        "http_cleartext_blocked",
+        "http_upstream_failed",
+        -> failure.reasonCode
+        else -> "mitm_error"
+      }
       MitmOutcome.HardFailure(
-        detail = "${e.javaClass.simpleName}: ${e.message ?: "websocket relay failed"}",
+        detail = if (reason == "mitm_error") {
+          "${e.javaClass.simpleName}: ${e.message ?: "websocket relay failed"}"
+        } else {
+          failure.detail
+        },
         bypassHost = false,
-        reasonCode = "mitm_error",
+        reasonCode = reason,
       )
+    }
+  }
+
+  /** Bidirectional pipe that tees RFC 6455 frames into [captureId] (read-only). */
+  private fun relayWebSocketInspected(client: Socket, upstream: Socket, captureId: String) {
+    val recorder = WsFrameCaptureRecorder(context, captureId)
+    runCatching { client.tcpNoDelay = true }
+    runCatching { upstream.tcpNoDelay = true }
+    // Wait for both directions before closing. Do NOT call Socket.shutdownOutput():
+    // on SSLSocket that sends TLS close_notify and kills the peer direction (WSS broken).
+    // Match iOS WsPipeTeardown: countdown, then full close.
+    val remaining = java.util.concurrent.atomic.AtomicInteger(2)
+    val finishDirection = {
+      if (remaining.decrementAndGet() == 0) {
+        runCatching { client.close() }
+        runCatching { upstream.close() }
+        recorder.markClosed("eof")
+        recorder.flush(force = true)
+      }
+    }
+    relayPool.execute {
+      try {
+        relayWsDirection(
+          source = client,
+          sink = upstream,
+          dir = "client",
+          recorder = recorder,
+        )
+      } finally {
+        finishDirection()
+      }
+    }
+    relayPool.execute {
+      try {
+        relayWsDirection(
+          source = upstream,
+          sink = client,
+          dir = "server",
+          recorder = recorder,
+        )
+      } finally {
+        finishDirection()
+      }
+    }
+  }
+
+  private fun relayWsDirection(
+    source: Socket,
+    sink: Socket,
+    dir: String,
+    recorder: WsFrameCaptureRecorder,
+  ) {
+    val parser = WebSocketFrameParser()
+    val assembler = WebSocketMessageAssembler()
+    var inspectFailed = false
+    try {
+      val input = source.getInputStream()
+      val output = sink.getOutputStream()
+      val buf = ByteArray(32 * 1024)
+      while (true) {
+        val read = input.read(buf)
+        if (read <= 0) break
+        output.write(buf, 0, read)
+        // Do not flush every chunk — tcpNoDelay + half-close keeps latency low without
+        // stalling the pipe (flush-per-write caused poor reconnect under load).
+        if (inspectFailed) continue
+        val inspect = runCatching {
+          parser.append(buf, 0, read)
+          for (raw in parser.drain()) {
+            val message = assembler.accept(raw) ?: continue
+            if (message.omitted) {
+              recorder.markOmitted()
+              continue
+            }
+            if (message.rsv != 0) recorder.markCompressed()
+            recorder.record(dir, message.opcode, message.payload, message.rsv)
+          }
+        }
+        if (inspect.isFailure) {
+          inspectFailed = true
+          android.util.Log.w(
+            "LenswireMITM",
+            "WebSocket inspect disabled for dir=$dir: ${inspect.exceptionOrNull()?.message}",
+          )
+        }
+      }
+    } catch (_: java.net.SocketException) {
+      // Expected when either side closes first.
+    } catch (_: java.io.IOException) {
+      // Ignore teardown races.
+    } finally {
+      runCatching { recorder.flush(force = true) }
     }
   }
 
