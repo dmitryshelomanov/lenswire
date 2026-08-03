@@ -114,7 +114,7 @@ export const comparison = {
     },
     {
       criterion: 'WebSocket frame inspect',
-      values: ['relay only', 'yes', 'yes', 'yes'] as const,
+      values: ['yes (read-only)', 'yes', 'yes', 'yes'] as const,
     },
     {
       criterion: 'Scripting / breakpoints',
@@ -138,7 +138,7 @@ export const comparison = {
     },
   ],
   footnote:
-    'Charles, Proxyman, and mitmproxy (CLI or mitmweb) run on a computer — you point the phone at that proxy. Lenswire decrypts HTTP/1.1 after CA trust; HTTP/2-only and QUIC usually tunnel. No pinning bypass. Proxyman started on Mac and also has Windows.',
+    'Charles, Proxyman, and mitmproxy (CLI or mitmweb) run on a computer — you point the phone at that proxy. Lenswire decrypts HTTP/1.1 after CA trust; WebSocket frames are read-only; HTTP/2-only and QUIC usually tunnel. No pinning bypass. Proxyman started on Mac and also has Windows.',
 } as const;
 
 export const faqs = [
@@ -148,7 +148,7 @@ export const faqs = [
   },
   {
     q: 'How does HTTPS decryption work?',
-    a: 'Generate and install the Lenswire CA, enable HTTPS decryption. MITM covers HTTP/1.1 (often via ALPN downgrade). HTTP/2-only and QUIC tunnel. Certificate pinning is not bypassed — pinned apps still need separate unpinning on a rooted/jailbroken device.',
+    a: 'Generate and install the Lenswire CA, enable HTTPS decryption. MITM covers HTTP/1.1 (often via ALPN downgrade). WebSocket frames are inspected read-only after Upgrade. HTTP/2-only and QUIC tunnel. Certificate pinning is not bypassed — pinned apps still need separate unpinning on a rooted/jailbroken device.',
   },
   {
     q: 'Is traffic sent to remote servers?',
@@ -189,7 +189,7 @@ export const howItWorks = {
   platformNote:
     'iOS Packet Tunnel (utun → hev → SOCKS) · Android VpnService (TUN → tun2socks → SOCKS)',
   limits:
-    'Boundary in one line: decryptable payload is HTTP/1.1 after CA trust. Pure HTTP/2 and QUIC tunnel. WebSocket is relay-only (no frame inspect). Certificate pinning is not bypassed. Failures stay fail-open with a reason code.',
+    'Boundary in one line: decryptable payload is HTTP/1.1 after CA trust. Pure HTTP/2 and QUIC tunnel. WebSocket frames are inspected read-only (no inject). Certificate pinning is not bypassed. Failures stay fail-open with a reason code.',
   fork: {
     intro: 'The fork',
     heading: 'One gate. Two exits.',
@@ -220,8 +220,8 @@ runMitm(/* … */)  // decrypt → inspect → upstream → encrypt back`,
       },
       {
         label: 'WebSocket',
-        body: 'After MITM TLS, Upgrade is relayed end-to-end. Frames are not inspected; the host is not added to session bypass.',
-        code: 'websocket_relay',
+        body: 'After MITM TLS, Upgrade frames are inspected read-only (Messages tab). No inject or rewrite; the host is not added to session bypass.',
+        code: 'websocket_frames',
       },
     ],
   },

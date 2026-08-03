@@ -72,7 +72,15 @@ npm run format:check   # prettier
 npm test               # check:ios-sync + vitest
 ```
 
-Optional: `npm run format` to fix formatting. Android native unit tests (after `prebuild:android`): from `android/`, `./gradlew :lenswire-proxy:testDebugUnitTest`.
+CI also runs Android native unit tests (`:lenswire-proxy:testDebugUnitTest`). After changing the proxy module, run them locally (after `prebuild:android`):
+
+```bash
+cd android && ./gradlew :lenswire-proxy:testDebugUnitTest
+```
+
+When editing mirrored iOS MITM / WebSocket sources (`LocalProxyServer.swift`, `LenswireShared.swift`, `WebSocketFrameParser.swift`), keep module and packet-tunnel copies in sync — `npm run check:ios-sync` (also part of `npm test`).
+
+Optional: `npm run format` to fix formatting.
 
 ## Pull requests
 
