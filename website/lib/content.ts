@@ -5,7 +5,7 @@ export const features = [
   },
   {
     title: 'HTTPS decryption',
-    body: 'Install the Lenswire CA, toggle decryption, and read requests and responses in plain text.',
+    body: 'Install the Lenswire CA and decrypt HTTP/1.1. HTTP/2-only and QUIC stay sealed tunnels — with a reason code in the UI.',
   },
   {
     title: 'Domain & client filters',
@@ -105,12 +105,28 @@ export const comparison = {
       values: ['yes', 'via proxy setup', 'via proxy setup', 'via proxy setup'] as const,
     },
     {
-      criterion: 'HTTPS decryption',
-      values: ['yes', 'yes', 'yes', 'yes'] as const,
+      criterion: 'HTTPS MITM (HTTP/1.1)',
+      values: ['yes (CA trust)', 'yes', 'yes', 'yes'] as const,
+    },
+    {
+      criterion: 'HTTP/2 MITM',
+      values: ['no (tunnels)', 'yes', 'yes', 'yes'] as const,
+    },
+    {
+      criterion: 'WebSocket frame inspect',
+      values: ['relay only', 'yes', 'yes', 'yes'] as const,
+    },
+    {
+      criterion: 'Scripting / breakpoints',
+      values: ['no', 'yes', 'yes', 'yes (Python)'] as const,
     },
     {
       criterion: 'Mock / rewrite',
       values: ['yes', 'yes', 'yes', 'yes'] as const,
+    },
+    {
+      criterion: 'Fail-open with reason codes',
+      values: ['yes', 'no', 'no', 'no'] as const,
     },
     {
       criterion: 'Free & open source',
@@ -122,7 +138,7 @@ export const comparison = {
     },
   ],
   footnote:
-    'Charles, Proxyman, and mitmproxy (CLI or mitmweb) run on a computer — you point the phone at that proxy. Proxyman started on Mac and also has Windows.',
+    'Charles, Proxyman, and mitmproxy (CLI or mitmweb) run on a computer — you point the phone at that proxy. Lenswire decrypts HTTP/1.1 after CA trust; HTTP/2-only and QUIC usually tunnel. No pinning bypass. Proxyman started on Mac and also has Windows.',
 } as const;
 
 export const faqs = [
@@ -132,7 +148,7 @@ export const faqs = [
   },
   {
     q: 'How does HTTPS decryption work?',
-    a: 'Generate and install the Lenswire CA, enable HTTPS decryption in Settings. Certificate-pinned apps still need unpinning tools on a rooted/jailbroken device.',
+    a: 'Generate and install the Lenswire CA, enable HTTPS decryption. MITM covers HTTP/1.1 (often via ALPN downgrade). HTTP/2-only and QUIC tunnel. Certificate pinning is not bypassed — pinned apps still need separate unpinning on a rooted/jailbroken device.',
   },
   {
     q: 'Is traffic sent to remote servers?',
@@ -163,15 +179,17 @@ export const getStarted = {
 
 export const howTeaser = {
   title: 'MITM when we can, tunnel when we can’t',
-  lead: 'Every HTTPS connection takes one path: decrypt and inspect, or a sealed byte tunnel. You still see the connection either way — payload only when MITM succeeds.',
+  lead: 'Every HTTPS connection takes one path: decrypt HTTP/1.1 and inspect, or a sealed byte tunnel (h2-only, QUIC, pinning, …). You still see the connection either way — payload only when MITM succeeds.',
   cta: 'See how it works',
 } as const;
 
 export const howItWorks = {
   title: 'How the pipe works',
-  lead: 'Apps hit a local VPN. The proxy checks whether it can decrypt HTTPS. If yes — MITM: open the bytes, inspect, send them on. If not — a sealed byte tunnel; you still see the connection in the UI, but not the HTTP payload.',
+  lead: 'Apps hit a local VPN. The proxy checks whether it can decrypt HTTPS as HTTP/1.1. If yes — MITM: open the bytes, inspect, send them on. If not — a sealed byte tunnel; you still see the connection in the UI, but not the HTTP payload.',
   platformNote:
     'iOS Packet Tunnel (utun → hev → SOCKS) · Android VpnService (TUN → tun2socks → SOCKS)',
+  limits:
+    'Boundary in one line: decryptable payload is HTTP/1.1 after CA trust. Pure HTTP/2 and QUIC tunnel. WebSocket is relay-only (no frame inspect). Certificate pinning is not bypassed. Failures stay fail-open with a reason code.',
   fork: {
     intro: 'The fork',
     heading: 'One gate. Two exits.',
@@ -189,7 +207,7 @@ runMitm(/* … */)  // decrypt → inspect → upstream → encrypt back`,
   },
   mitm: {
     title: 'We MITM',
-    lead: 'Terminate TLS with the app → read HTTP → talk to the server → encrypt back.',
+    lead: 'Terminate TLS with the app → read HTTP/1.1 → talk to the server → encrypt back.',
     items: [
       {
         label: 'HTTP/1.1',
@@ -221,8 +239,13 @@ runMitm(/* … */)  // decrypt → inspect → upstream → encrypt back`,
         } satisfies SourceLinks,
       },
       {
+        label: 'QUIC',
+        body: 'UDP/QUIC is not terminated for MITM. Those flows stay outside the HTTP decrypt path — connection may appear, payload does not.',
+        code: 'quic',
+      },
+      {
         label: 'Session bypass',
-        body: 'Trust fail or non-HTTP/1.1 after handshake → that connect closes; the host stays tunnel-only until you stop VPN. UI shows the bypass cause.',
+        body: 'Trust fail, pinning-style TLS reject, or non-HTTP/1.1 after handshake → that connect closes; the host stays tunnel-only until you stop VPN. UI shows the bypass cause.',
         code: 'mitm_bypassed',
       },
       {

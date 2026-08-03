@@ -59,6 +59,12 @@ export default function HowPage() {
           <div className="mx-auto max-w-5xl px-5 pt-16 sm:pt-24">
             <HowProtocols />
           </div>
+
+          <div className="mx-auto max-w-5xl px-5 pb-16 pt-12 sm:pb-24 sm:pt-16">
+            <p className="max-w-2xl text-base leading-relaxed text-muted sm:text-lg">
+              {howItWorks.limits}
+            </p>
+          </div>
         </section>
 
         <section className="bg-navy">

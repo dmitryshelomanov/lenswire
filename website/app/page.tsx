@@ -163,8 +163,9 @@ export default function HomePage() {
                 Compared to desktop proxies
               </h2>
               <p className="mt-5 text-xl text-muted">
-                Charles, Proxyman, and mitmproxy are excellent on a Mac or PC. Lenswire is built for
-                capture on the phone — VPN MITM, no laptop in the loop.
+                Charles, Proxyman, and mitmproxy are excellent on a Mac or PC — fuller protocol
+                coverage and scripting. Lenswire is built for capture on the phone — VPN MITM, no
+                laptop in the loop.
               </p>
             </div>
 

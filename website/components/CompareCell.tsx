@@ -1,6 +1,6 @@
 export function CompareCell({ value, emphasize }: { value: string; emphasize?: boolean }) {
-  const isYes = value === 'yes' || value.startsWith('yes');
-  const isNo = value === 'no';
+  const isYes = value === 'yes' || value.startsWith('yes ');
+  const isNo = value === 'no' || value.startsWith('no ');
 
   if (isYes) {
     const note = value !== 'yes' ? value.replace(/^yes\s*/, '') : null;
@@ -17,9 +17,12 @@ export function CompareCell({ value, emphasize }: { value: string; emphasize?: b
   }
 
   if (isNo) {
+    const note = value !== 'no' ? value.replace(/^no\s*/, '') : null;
+
     return (
-      <span className="text-muted" aria-label="No">
-        —
+      <span className="inline-flex flex-col items-center gap-0.5 text-muted">
+        <span aria-label="No">—</span>
+        {note ? <span className="text-xs font-normal">{note}</span> : null}
       </span>
     );
   }
